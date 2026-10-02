@@ -93,7 +93,7 @@ describe('readConfig', () => {
 
   test('blank strings fall back to the default', async () => {
     const c = readConfig({ server: ' ', baseUrl: '', project: '', extractorModel: ' ' })
-    expect(c.server).toBe('lumberroom')
+    expect(c.server).toBe('auto')
     expect(c.baseUrl).toBe(DEFAULTS.baseUrl)
     expect(c.project).toBe('auto')
     expect(c.extractorModel).toBe('haiku')

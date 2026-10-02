@@ -50,7 +50,7 @@ export function parseResult(raw: RawResult): { isError: boolean; data: unknown; 
  * user never configured or whose tools their settings disallow (a disallowed tool leaves the
  * engine): `no tool "context_bootstrap" on a server named "lumberroom"; servers with tools: ...`.
  */
-const NOT_CONNECTED = [/no tool "[^"]+" on a server named/i, /no (mcp )?server (found )?(named|with name)/i]
+const NOT_CONNECTED = [/no (connected )?(mcp )?tool "[^"]+" on a server named/i, /no (mcp )?server (found )?(named|with name)/i]
 
 /** A thrown error from $.mcp.call: a permission refusal, a server that is not connected, or an outage. */
 export function classifyError(err: unknown): 'denied' | 'unreachable' | 'not_connected' {

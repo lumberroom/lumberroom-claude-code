@@ -41,7 +41,7 @@ export interface Config {
 }
 
 export const DEFAULTS: Config = {
-  server: 'lumberroom',
+  server: 'auto',
   baseUrl: 'https://mcp.lumberroom.cloud',
   project: 'auto',
   recall: false,

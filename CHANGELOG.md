@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.0] - 2026-10-02
+
+### Added
+
+- The plugin bundles its MCP server (`.mcp.json`), connecting to `<baseUrl>/mcp` with OAuth, so one
+  install runs the whole system. Setting `baseUrl` points it at a self-hosted engine.
+
+### Changed
+
+- `server` defaults to `auto`: the bundled server, or a registered `lumberroom` when Claude Code
+  hides the bundled one as a duplicate of the same URL.
+- The not-connected check also matches Claude Code's wording for a hidden plugin server.
+
 ## [0.1.1] - 2026-10-02
 
 ### Fixed

@@ -24,6 +24,7 @@ import { callTool, isOutage } from '../src/mcp'
 import { allowsOwnCall, OWN_PLUGIN } from '../src/own'
 import { raceSleep } from '../src/race'
 import type { CallOutcome, McpDeps } from '../src/mcp'
+import { serverCandidates } from '../src/server'
 import { findGitRoot, resolveProject, slugFromPath } from '../src/project'
 import type { Exists } from '../src/project'
 import { buildRecallBlock, buildReminderBlock, clipQuery, hitsFrom, isEligible, isPersonPrompt, nudgeDue, searchNamespaces, selectHits, toRecalled, UNREACHABLE_TOAST } from '../src/recall'
@@ -84,6 +85,10 @@ let notConnectedPrompts = 0
 /** Set by the third such prompt; only the next session.start clears it. */
 let recallStopped = false
 let toldNotConnected = false
+/** The candidate that last answered context_bootstrap; the other calls go to it. */
+let activeServer: string | undefined
+const serverName = (): string => activeServer ?? serverCandidates(cfg.server)[0] ?? cfg.server
+
 /** Gap between bootstrap attempts at session start, while MCP servers are still connecting. */
 const BOOTSTRAP_RETRY_MS = 500
 let isExtracting = false
@@ -210,17 +215,28 @@ const noteNotConnectedPrompt = ($: Dollar): void => {
   if (notConnectedPrompts < 3 || toldNotConnected) return
   toldNotConnected = true
   recallStopped = true
-  $.ui.toast(`${PLUGIN}: no "${cfg.server}" MCP server with memory tools is connected. Check /mcp, or the server option.`)
+  const names = serverCandidates(cfg.server).map((n) => `"${n}"`).join(' or ')
+  $.ui.toast(`${PLUGIN}: no ${names} MCP server with memory tools is connected. Check /mcp, or the server option.`)
 }
 
 /** One context_bootstrap through the breaker. Stores the digest on success. */
 const bootstrap = async ($: Dollar): Promise<'ok' | 'not_connected' | 'failed'> => {
   const project = await projectFor($)
-  const outcome = await callTool(mcpDeps($), cfg.server, 'context_bootstrap', project === undefined ? {} : { project }, cfg.bootstrapTimeoutMs)
+  // Claude Code suppresses the bundled server when a registered one has its URL, and that one
+  // answers instead; the first candidate that is connected becomes the server for the session.
+  const candidates = serverCandidates(cfg.server)
+  let outcome: CallOutcome = { kind: 'not_connected', error: 'no server tried', ms: 0 }
+  for (const candidate of candidates) {
+    outcome = await callTool(mcpDeps($), candidate, 'context_bootstrap', project === undefined ? {} : { project }, cfg.bootstrapTimeoutMs)
+    if (outcome.kind !== 'not_connected') {
+      activeServer = candidate
+      break
+    }
+  }
   await record($, outcome)
   serverAbsent = outcome.kind === 'not_connected'
   if (outcome.kind !== 'ok') {
-    debug($, `context_bootstrap gave ${outcome.kind}`)
+    debug($, `context_bootstrap gave ${outcome.kind}${"error" in outcome ? `: ${outcome.error}` : ""}`)
     return outcome.kind === 'not_connected' ? 'not_connected' : 'failed'
   }
   const { text, memories } = digestFrom(outcome.data)
@@ -309,7 +325,7 @@ const recallBlock = async ($: Dollar, text: string, originKind: string | undefin
   if (project !== undefined) args.project = project
   const namespaces = searchNamespaces(project, extrasFor(cfg.recallExtraProjects, project))
   if (namespaces !== undefined) args.namespaces = namespaces
-  const outcome = await callTool(mcpDeps($), cfg.server, 'memory_search', args, cfg.recallTimeoutMs)
+  const outcome = await callTool(mcpDeps($), serverName(), 'memory_search', args, cfg.recallTimeoutMs)
   await record($, outcome)
   if (outcome.kind === 'not_connected') {
     noteNotConnectedPrompt($)
@@ -359,7 +375,7 @@ const guardsPath = async ($: Dollar, e: Readonly<Record<string, unknown>>): Prom
 
 /** Stored rows that read like `fact`; any failure answers [] so the write goes ahead plain. */
 const findSimilarRows = async ($: Dollar, fact: Fact): Promise<Conflict[]> => {
-  const outcome = await callTool(mcpDeps($), cfg.server, 'memory_search', { query: fact.content, namespaces: [fact.namespace], limit: 3 }, cfg.recallTimeoutMs)
+  const outcome = await callTool(mcpDeps($), serverName(), 'memory_search', { query: fact.content, namespaces: [fact.namespace], limit: 3 }, cfg.recallTimeoutMs)
   if (outcome.kind !== 'ok') return []
   const out: Conflict[] = []
   for (const hit of hitsFrom(outcome.data)) {
@@ -396,7 +412,7 @@ const extract = async ($: Dollar, signal?: AbortSignal): Promise<void> => {
     }
 
     const deps: WriteDeps = {
-      write: (args) => callTool(mcpDeps($), cfg.server, 'memory_write', args, WRITE_TIMEOUT_MS),
+      write: (args) => callTool(mcpDeps($), serverName(), 'memory_write', args, WRITE_TIMEOUT_MS),
       store: { get: (key) => $.store.get(key), set: (key, value) => $.store.set(key, value) },
       findSimilar: (fact) => findSimilarRows($, fact),
       isOldVersion: async (fact, conflict) => {
@@ -669,6 +685,7 @@ export const register: Register = (on, options) => {
       recallStopped = false
       toldNotConnected = false
       projectMemo = undefined
+      activeServer = undefined
       try {
         await $.command.register({ name: 'lr-import', description: "Send Claude Code's memory files to lumberroom's proposal queue", argumentHint: '[all | plan | confirm <n|folder|all> [namespace] | skip <n>]' })
       } catch (err) {
@@ -739,7 +756,7 @@ export const register: Register = (on, options) => {
 
   // $.mcp.call runs the permission chain even for a plugin's own call (spec 2.4).
   on('tool.check', ($, e, next) =>
-    allowsOwnCall(next.origin.plugin, e.tool, cfg.server) ? { decision: 'allow' as const, reason: `${PLUGIN} calls its own lumberroom tools` } : next(e),
+    serverCandidates(cfg.server).some((server) => allowsOwnCall(next.origin.plugin, e.tool, server)) ? { decision: 'allow' as const, reason: `${PLUGIN} calls its own lumberroom tools` } : next(e),
   )
 
   // next() sits outside the try block: a failure beneath the plugin must not run the chain twice.
@@ -765,7 +782,7 @@ export const register: Register = (on, options) => {
     }
     if (isDenied) return { deny: GUARD_REASON }
     // The model's own lumberroom calls; the plugin's $.mcp.call results never enter the transcript.
-    if (!isServerTool(e.tool, cfg.server) || next.origin.plugin === PLUGIN) return next(e)
+    if (!serverCandidates(cfg.server).some((server) => isServerTool(e.tool, server)) || next.origin.plugin === PLUGIN) return next(e)
     const res = await next(e)
     if (res.deny === undefined) await addCost($, (c) => ({ ...c, tools: c.tools + estimateTokens(res.text ?? ''), toolCalls: c.toolCalls + 1 }))
     return res

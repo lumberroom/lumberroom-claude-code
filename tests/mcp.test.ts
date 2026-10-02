@@ -127,6 +127,11 @@ const NOT_CONNECTED_MSG =
   'no tool "context_bootstrap" on a server named "lumberroom"; servers with tools: claude_ai_Google_Drive, grafana'
 
 describe('classifyError not_connected', () => {
+  test('the wording for a suppressed plugin server is not_connected', async () => {
+    const msg = 'lumberroom-memory: $.mcp.call: no connected MCP tool "context_bootstrap" on a server named "plugin:lumberroom-memory:lumberroom"'
+    expect(classifyError(new Error(msg))).toBe('not_connected')
+  })
+
   test('the not-connected-yet message Claude Code 2.1.287 throws at session start is not_connected', async () => {
     expect(classifyError(new Error(NOT_CONNECTED_MSG))).toBe('not_connected')
   })

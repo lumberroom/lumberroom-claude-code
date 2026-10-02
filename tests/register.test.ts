@@ -12,7 +12,7 @@ const CWD = '/work/proj'
 const NOW = 1_000_000
 
 type Args = Record<string, unknown>
-type Answer = (tool: string, args: Args) => McpToolResult | Promise<McpToolResult>
+type Answer = (tool: string, args: Args, server?: string) => McpToolResult | Promise<McpToolResult>
 
 const json = (value: unknown): McpToolResult => ({ content: [{ type: 'text', text: JSON.stringify(value) }], isError: false })
 
@@ -48,7 +48,7 @@ function world(on: On, answer: Answer = engine, fs: Files = {}) {
 
   const w = {
     clock,
-    calls: [] as { tool: string; args: Args }[],
+    calls: [] as { tool: string; args: Args; server?: string }[],
     toasts: [] as string[],
     logs: [] as string[],
     commands: [] as string[],
@@ -136,10 +136,10 @@ function world(on: On, answer: Answer = engine, fs: Files = {}) {
     return next(e)
   })
   on('mcp.call', async (_$, e) => {
-    w.calls.push({ tool: e.tool, args: e.args })
+    w.calls.push({ tool: e.tool, args: e.args, server: e.server })
     // A hook that throws is skipped, so a call the engine rejects is simulated with a deny: its reason is the rejection.
     try {
-      return { value: await answer(e.tool, e.args) }
+      return { value: await answer(e.tool, e.args, e.server) }
     } catch (err) {
       return { deny: err instanceof Error ? err.message : String(err) }
     }
@@ -203,7 +203,7 @@ const NOT_CONNECTED_MSG =
 const notConnected: Answer = () => {
   throw new Error(NOT_CONNECTED_MSG)
 }
-const NO_SERVER_TOAST = 'lumberroom-memory: no "lumberroom" MCP server with memory tools is connected. Check /mcp, or the server option.'
+const NO_SERVER_TOAST = 'lumberroom-memory: no "plugin:lumberroom-memory:lumberroom" or "lumberroom" MCP server with memory tools is connected. Check /mcp, or the server option.'
 
 type OriginKind = 'composer' | 'task-notification' | 'peer'
 const send = ($: Engine, text: string, kind: OriginKind = 'composer') => $.prompt.submit({ text, wait: false, origin: { kind } })
@@ -417,7 +417,8 @@ describe('recall', () => {
     expect(w.toasts).toEqual([NO_SERVER_TOAST])
 
     const atStop = w.calls.length
-    expect(atStop).toBe(atStart + 3)
+    // Each prompt tries both candidates.
+    expect(atStop).toBe(atStart + 6)
     await send($, 'fourth question')
     await send($, 'fifth question')
     expect(w.calls.length).toBe(atStop)
@@ -673,14 +674,14 @@ describe('bootstrap', () => {
   test('context_bootstrap gets the git root slug as project', async ($, on) => {
     const w = world(on)
     await $.session.start(START)
-    expect(w.calls[0]).toEqual({ tool: 'context_bootstrap', args: { project: 'proj' } })
+    expect(w.calls[0]).toMatchObject({ tool: 'context_bootstrap', args: { project: 'proj' } })
     expect(w.state.digest).toMatchObject({ project: 'proj', text: '## Active project: proj\n- prefers pnpm', memories: 3 })
   })
 
   test('project none sends no project argument', { options: { project: 'none' } }, async ($, on) => {
     const w = world(on)
     await $.session.start(START)
-    expect(w.calls[0]).toEqual({ tool: 'context_bootstrap', args: {} })
+    expect(w.calls[0]).toMatchObject({ tool: 'context_bootstrap', args: {} })
   })
 
   test('registers the lr-import command', async ($, on) => {
@@ -712,11 +713,12 @@ describe('bootstrap', () => {
 
     expect(atStart).toBeGreaterThan(2)
     // 4000 ms of waiting in 500 ms steps: the loop cannot run on past the budget.
-    expect(atStart).toBeLessThanOrEqual(10)
+    // Two candidates per attempt.
+    expect(atStart).toBeLessThanOrEqual(20)
     expect(w.toasts).toEqual([])
 
     await send($, 'where is the config?')
-    expect(w.calls.length).toBe(atStart + 1)
+    expect(w.calls.length).toBe(atStart + 2)
     expect(w.calls.every((c) => c.tool === 'context_bootstrap')).toBe(true)
     expect(w.toasts).toEqual([])
   })
@@ -1103,6 +1105,27 @@ describe('session.compact', () => {
     await $.session.compact({ trigger: 'auto', messages: TURNS })
     expect(w.compacted[0]?.instructions).toBe(COMPACT_LINE)
   })
+})
+
+describe('server choice', () => {
+  test('auto uses the bundled server when it answers', { options: { recall: true } }, async ($, on) => {
+    const w = world(on)
+    await $.session.start(START)
+    await send($, 'how do I build this project?')
+    expect(w.calls.map((c) => c.server)).toEqual(['plugin:lumberroom-memory:lumberroom', 'plugin:lumberroom-memory:lumberroom'])
+  })
+
+  test('auto falls back to a registered lumberroom when the bundled server is suppressed', { options: { recall: true } }, async ($, on) => {
+    const w = world(on, (tool, args, server) => {
+      if (server !== 'lumberroom') throw new Error(`no tool "${tool}" on a server named "${server}"; servers with tools: lumberroom`)
+      return engine(tool, args)
+    })
+    await $.session.start(START)
+    await send($, 'how do I build this project?')
+    expect(w.calls.map((c) => c.server)).toEqual(['plugin:lumberroom-memory:lumberroom', 'lumberroom', 'lumberroom'])
+    expect((w.submitted[0]?.context ?? [])[0]).toMatch('Build with pnpm')
+  })
+
 })
 
 describe('token status line', () => {

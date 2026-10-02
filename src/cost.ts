@@ -2,6 +2,8 @@
 // Counts are estimates at four characters a token. The mod API counts tokens only for whole
 // context categories, so a per-block count has to be estimated.
 
+import { toolPrefix } from './server'
+
 export interface Cost {
   /** The system prompt section, sent with every request. */
   section: number
@@ -20,9 +22,9 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / CHARS_PER_TOKEN)
 }
 
-/** True for an MCP tool name served by `server`, as Claude Code spells it (`mcp__<server>__<tool>`). */
+/** True for an MCP tool name served by `server`, as Claude Code spells it. */
 export function isServerTool(tool: string, server: string): boolean {
-  return tool.startsWith(`mcp__${server}__`)
+  return tool.startsWith(toolPrefix(server))
 }
 
 /** Compaction and /clear drop the transcript; the section comes back with the next request. */
