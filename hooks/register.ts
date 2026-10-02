@@ -29,6 +29,7 @@ import type { Exists } from '../src/project'
 import { buildRecallBlock, buildReminderBlock, clipQuery, hitsFrom, isEligible, isPersonPrompt, nudgeDue, searchNamespaces, selectHits, toRecalled, UNREACHABLE_TOAST } from '../src/recall'
 import { writeFact } from '../src/writes'
 import type { Conflict, Fact, WriteDeps } from '../src/writes'
+import type { LumberroomDigest } from '../types'
 
 type Dollar = EngineInterface
 
@@ -225,11 +226,34 @@ const bootstrap = async ($: Dollar): Promise<'ok' | 'not_connected' | 'failed'> 
   const { text, memories } = digestFrom(outcome.data)
   const before = await read($, digestRef)
   const fetchedAt = await $.clock.now()
-  await update($, digestRef, () => ({ project: project ?? null, text, memories, fetchedAt }))
+  const fresh = { project: project ?? null, text, memories, fetchedAt }
+  await update($, digestRef, () => fresh)
+  try {
+    if (text.trim() !== '') await $.store.set(cacheKey(project), fresh)
+  } catch (err) {
+    logFailure($, 'digest cache', err)
+  }
   // The section text is cached per project; a different project needs a fresh render.
   // A section rendered before the digest arrived is cached without it.
   if (before === null || before.project !== (project ?? null)) $.ui.invalidate('prompt.section')
   return 'ok'
+}
+
+/**
+ * The last digest fetched for a project, kept across sessions in $.store. Claude Code runs
+ * classic.SessionStart before the session exists, when an MCP call fails, so the old hook's block
+ * can only be cut against this copy; it also fills the section when the fresh bootstrap fails.
+ */
+const cacheKey = (project: string | undefined): string => `digest-cache:${project ?? '-'}`
+
+const cachedDigest = async ($: Dollar): Promise<LumberroomDigest | null> => {
+  try {
+    const v = (await $.store.get(cacheKey(await projectFor($)))) as Partial<LumberroomDigest> | null | undefined
+    if (typeof v?.text !== 'string' || v.text.trim() === '') return null
+    return { project: typeof v.project === 'string' ? v.project : null, text: v.text, memories: typeof v.memories === 'number' ? v.memories : null, fetchedAt: typeof v.fetchedAt === 'number' ? v.fetchedAt : 0 }
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -657,6 +681,15 @@ export const register: Register = (on, options) => {
       hasRule = claudeMd.some(hasDurableMemoryBlock)
 
       await bootstrapAtStart($)
+      // A failed bootstrap leaves the cached digest in the section, which classic.SessionStart
+      // may already have cut the old hook's block against.
+      if (!serverAbsent && (await read($, digestRef)) === null) {
+        const cached = await cachedDigest($)
+        if (cached !== null) {
+          await update($, digestRef, () => cached)
+          $.ui.invalidate('prompt.section')
+        }
+      }
       // The engine caches the section, so prompt.compose may not run again after a reload; the
       // line has to be drawn here or it stays blank until a count changes.
       const section = serverAbsent ? 0 : estimateTokens(await sectionText($))
@@ -686,13 +719,14 @@ export const register: Register = (on, options) => {
   on('prompt.section', { name: 'memory' }, ($, e, next) => (cfg.replaceBuiltinMemory ? { text: null } : next(e)))
 
   // The old shell hook's digest would double the one in the system prompt, but only once ours
-  // exists: with no stored digest (a failed bootstrap, or this hook running before session.start
-  // finished) the old block is the only memory the session gets, so it stays.
+  // exists. Claude Code runs this before session.start, so on a fresh start the cached digest from
+  // an earlier session decides; with neither, the old block is the only memory the session gets,
+  // so it stays.
   on('classic.SessionStart', async ($, e, next) => {
     const res = await next(e)
     try {
       if (serverAbsent || !Array.isArray(res.additionalContext)) return res
-      const digest = await read($, digestRef)
+      const digest = (await read($, digestRef)) ?? (await cachedDigest($))
       if (digest === null || digest.text.trim() === '') return res
       const entries = res.additionalContext.map((entry) => stripOldHookBlock(entry))
       if (!entries.some((entry) => entry.stripped)) return res

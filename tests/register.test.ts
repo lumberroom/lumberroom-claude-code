@@ -1053,6 +1053,31 @@ describe('classic.SessionStart before the digest is stored', () => {
     expect(out.additionalContext).toEqual([old])
   })
 
+  const CACHED = { project: 'proj', text: '## Active project: proj\n- cached fact', memories: 3, fetchedAt: 1 }
+
+  test('cuts the old block before session.start when an earlier session cached the digest', async ($, on) => {
+    const w = world(on)
+    w.stored['digest-cache:proj'] = CACHED
+    w.startContext = [old]
+    const out = await $.classic.SessionStart({ source: 'startup' })
+    expect(out.additionalContext).toEqual([])
+  })
+
+  test('a successful bootstrap caches the digest for the next session', async ($, on) => {
+    const w = world(on)
+    await $.session.start(START)
+    expect((w.stored['digest-cache:proj'] as { text?: string } | undefined)?.text).toMatch('prefers pnpm')
+  })
+
+  test('a failed bootstrap falls back to the cached digest in the section', async ($, on) => {
+    const w = world(on, () => {
+      throw new Error('connect ECONNREFUSED')
+    })
+    w.stored['digest-cache:proj'] = CACHED
+    await $.session.start(START)
+    expect((await $.prompt.compose(COMPOSE)).sections.some((s) => s.id === SECTION_ID && s.text.includes('cached fact'))).toBe(true)
+  })
+
   test('cuts the old block once the digest is stored', async ($, on) => {
     const w = world(on)
     w.startContext = [old]

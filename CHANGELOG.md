@@ -1,6 +1,16 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.1] - 2026-10-02
+
+### Fixed
+
+- The old shell hook's digest stayed in the SessionStart context on every start, so the session
+  carried the digest twice. Claude Code runs that hook before the session exists, when an MCP call
+  fails, so the plugin now caches each digest in `$.store` per project and cuts the old block
+  against the cached copy. A failed bootstrap fills the section from the same cache. The first
+  session for a project has no cache and keeps the old block once.
+
+## [0.1.0] - 2026-10-02
 
 ### Added
 
