@@ -1,1 +1,0 @@
-{ "name": "lr-probe", "version": "0.0.1", "description": "Measures prompt.submit context persistence and $.mcp.call result shape" }

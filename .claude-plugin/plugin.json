@@ -1,12 +1,25 @@
 {
   "name": "lumberroom-memory",
-  "version": "0.2.1",
+  "displayName": "lumberroom memory",
+  "version": "0.2.2",
   "description": "lumberroom as Claude Code's memory: the digest in the system prompt, a periodic search-and-write reminder, optional per-prompt recall, built-in memory off.",
   "author": {
     "name": "the-cybersapien"
   },
   "license": "Apache-2.0",
   "repository": "https://github.com/lumberroom/lumberroom-claude-code",
+  "homepage": "https://lumberroom.cloud",
+  "icon": "./assets/icon.png",
+  "documentationUrl": "https://github.com/lumberroom/lumberroom-claude-code#readme",
+  "supportUrl": "https://github.com/lumberroom/lumberroom-claude-code/issues",
+  "privacyPolicyUrl": "https://lumberroom.cloud/privacy",
+  "termsOfServiceUrl": "https://lumberroom.cloud/terms",
+  "keywords": [
+    "memory",
+    "mcp",
+    "lumberroom",
+    "context"
+  ],
   "types": "./types/index.d.ts",
   "userConfig": {
     "server": {
@@ -15,11 +28,17 @@
       "description": "auto uses the server this plugin bundles, or a registered server named lumberroom when Claude Code suppresses the bundled one as a duplicate. Anything else is the MCP server's name as /mcp lists it.",
       "default": "auto"
     },
+    "mcpUrl": {
+      "type": "string",
+      "title": "MCP server URL",
+      "description": "Where the bundled MCP server connects: https://mcp.lumberroom.cloud/mcp, or <your engine>/mcp for a self-hosted one. Restart Claude Code after a change.",
+      "default": "https://mcp.lumberroom.cloud/mcp"
+    },
     "baseUrl": {
       "type": "string",
       "title": "Engine URL",
-      "description": "The engine's base URL. The bundled MCP server connects to <baseUrl>/mcp, and /lr-import posts to it. Change it to point the plugin at a self-hosted engine; restart Claude Code to apply.",
-      "default": "https://mcp.lumberroom.cloud"
+      "description": "The engine's base URL for /lr-import. Empty takes it from mcpUrl without the trailing /mcp.",
+      "default": ""
     },
     "project": {
       "type": "string",

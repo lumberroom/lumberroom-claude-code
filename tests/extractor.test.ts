@@ -84,11 +84,13 @@ describe('parseFacts', () => {
   test('skips a malformed line and keeps the next', async () => {
     expect(parseFacts(`{not json\n${line('good')}`, null).map((f) => f.content)).toEqual(['good'])
   })
+  // The fixtures are assembled at run time so a secret scanner reading this file sees no credential.
+  const KEY = ['BEGIN', 'PRIVATE', 'KEY'].join(' ')
   for (const [name, secret] of [
-    ['an lr_ token', 'The token is lr_abcdef1234567890abcdef'],
-    ['a private key block', '-----BEGIN PRIVATE KEY-----\nMIIE'],
-    ['an RSA private key block', '-----BEGIN RSA PRIVATE KEY----- abc'],
-    ['an AWS key id', 'deploy key AKIAIOSFODNN7EXAMPLE for staging'],
+    ['an lr_ token', `The token is ${'lr' + '_'}abcdef1234567890abcdef`],
+    ['a private key block', `-----${KEY}-----\nMIIE`],
+    ['an RSA private key block', `-----${KEY.replace('PRIVATE', 'RSA PRIVATE')}----- abc`],
+    ['an AWS key id', `deploy key ${'AK' + 'IA'}IOSFODNN7EXAMPLE for staging`],
     ['a password assignment', 'db password=hunter2 on prod'],
     ['a token assignment', 'use token=abc123def'],
   ] as const) {

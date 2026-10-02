@@ -6,7 +6,7 @@ share a file. `npm run gate` (validate, typecheck, `claude plugin test`) closes 
 
 ## Batch 0: prototype and interface lock (done, 2 October 2026)
 
-- P0.1 Probe mod and 10-turn driver: `prototype/`. Results in spec section 2.
+- P0.1 Probe mod and 10-turn driver: `prototype/` at tag `v0.1.0`. Results in spec section 2.
 - P0.2 Manifest with `userConfig`, `$.state` contract, typed stubs for every `src/` module,
   `package.json` (TypeScript 5.9.3 for `tsc` only), `tsconfig.json`, smoke test.
 

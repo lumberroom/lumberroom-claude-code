@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.2] - 2026-10-02
+
+### Added
+
+- Directory listing fields in `plugin.json`: `displayName`, the lumberroom icon (`assets/icon.png`),
+  homepage, documentation, support, privacy policy and terms URLs, and keywords.
+- A README section on what the plugin sends and where.
+- `mcpUrl` option: the bundled MCP server's URL, `https://mcp.lumberroom.cloud/mcp` by default.
+
+### Changed
+
+- `baseUrl` defaults to empty and then takes `mcpUrl` without its trailing `/mcp`, so a self-hosted
+  engine needs one setting.
+- The plugin no longer ships `package-lock.json` (Claude Code installed its development
+  dependencies on every install) or the `prototype/` probe, which stays at tag `v0.1.0`.
+
 ## [0.2.1] - 2026-10-02
 
 ### Fixed

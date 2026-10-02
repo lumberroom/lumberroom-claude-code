@@ -18,6 +18,9 @@ export interface RecallExtras {
 
 export interface Config {
   server: string
+  /** Where the bundled MCP server connects; Claude Code reads it from .mcp.json. */
+  mcpUrl: string
+  /** For /lr-import: the option, else mcpUrl without its trailing /mcp. */
   baseUrl: string
   /** `auto`, `none`, or a slug. */
   project: string
@@ -42,6 +45,7 @@ export interface Config {
 
 export const DEFAULTS: Config = {
   server: 'auto',
+  mcpUrl: 'https://mcp.lumberroom.cloud/mcp',
   baseUrl: 'https://mcp.lumberroom.cloud',
   project: 'auto',
   recall: false,
@@ -111,10 +115,12 @@ export function readConfig(options: Readonly<Record<string, unknown>>): Config {
   }
 
   const extractor = options.extractor
+  const mcpUrl = str(options.mcpUrl, DEFAULTS.mcpUrl).replace(/\/+$/, '')
   const token = typeof options.ingestToken === 'string' ? options.ingestToken.trim() : ''
   const config: Config = {
     server: str(options.server, DEFAULTS.server),
-    baseUrl: str(options.baseUrl, DEFAULTS.baseUrl).replace(/\/+$/, ''),
+    mcpUrl,
+    baseUrl: str(options.baseUrl, mcpUrl.replace(/\/mcp$/, '')).replace(/\/+$/, ''),
     project: str(options.project, DEFAULTS.project),
     recall: bool(options.recall, DEFAULTS.recall),
     recallExtraProjects: extras(options.recallExtraProjects),

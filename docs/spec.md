@@ -45,7 +45,8 @@ so it holds no credential for the MCP path. The one secret it can hold is the op
 ## 2. Prototype results
 
 Three points were open before any design leaned on them. A throwaway mod
-(`prototype/probe/hooks/register.ts`) and a driver (`prototype/run-probe.sh`) settled them on
+(`prototype/probe/hooks/register.ts`) and a driver (`prototype/run-probe.sh`), kept at tag `v0.1.0`
+and removed from the plugin in 0.2.2 so it does not ship to users, settled them on
 2 October 2026 against `https://mcp.lumberroom.cloud/mcp`, model `haiku`, one headless turn per
 `claude -p --resume` call.
 
@@ -154,7 +155,6 @@ types/index.d.ts             $.state contract, including the cost atom
 tests/*.test.ts              claude plugin test; tests/fixtures holds the tools snapshot as TypeScript
 tools-snapshot.json          the engine's tools/list, for drift tests
 scripts/                     capture-tools.mjs, snapshot-to-ts.mjs
-prototype/                   the probe mod and the drivers behind section 2
 ```
 
 Every pure decision lives in `src/` with no `$`, so tests drive it with plain values. `register.ts`

@@ -1,12 +1,17 @@
 # lumberroom for Claude Code
 
+![lumberroom](assets/icon.png)
+
 lumberroom as Claude Code's memory, built as a Claude Code mod (a plugin of function hooks). The
 digest sits in the system prompt, a short reminder tells the model to search and to write, and
 Claude Code's own file memory is switched off. Recall with each prompt is available and off by
-default. It targets lumberroom.cloud or a self-hosted engine, through the `lumberroom` MCP server you
-already registered. The live sessions listed below ran against the hosted engine.
+default. It targets lumberroom.cloud or a self-hosted engine through an MCP server the plugin
+brings with it. The live sessions listed below ran against the hosted engine.
 
-**Status:** 0.1.0. The Claude Code mod API is early access (built and observed on 2.1.287) and may
+Built for Claude Code. The digest, the reminder, the status line and the memory guard are Claude
+Code hooks, so on claude.ai, the desktop app or Cowork only the bundled MCP server applies.
+
+**Status:** 0.2. The Claude Code mod API is early access (built and observed on 2.1.287) and may
 change between releases.
 
 ## What it does
@@ -44,6 +49,29 @@ change between releases.
 The plugin writes nothing on its own unless you turn on the extractor. When on, the extractor calls
 `memory_write` directly. Otherwise the model writes when it calls `memory_write`.
 
+## What it sends, and where
+
+The plugin talks to one place: the lumberroom engine at `mcpUrl` (lumberroom.cloud by default, or
+your own). It sends nothing to any other server. What goes there:
+
+- **At session start:** a `context_bootstrap` call with the project slug (the git root's folder
+  name). The engine answers with the digest.
+- **With each prompt, only when `recall` is on:** a `memory_search` call carrying the prompt text,
+  clipped, and the project slug.
+- **When the extractor is on:** facts a model pulled from the conversation, sent with
+  `memory_write`, each preceded by a `memory_search` for similar rows. The extraction itself runs
+  on your Claude account through Claude Code, with no third party involved.
+- **On `/lr-import`:** the contents of Claude Code's memory files under `~/.claude/projects/`, posted
+  to the engine's proposal queue with your `ingestToken`. Nothing is posted until you run the
+  command, and `/lr-import all` posts nothing until you confirm a folder.
+- **The model's own calls:** when Claude calls `memory_search`, `memory_write` or another lumberroom
+  tool, those calls go to the same engine under your permission rules.
+
+On your machine the plugin reads `~/.claude/CLAUDE.md` and the project's `CLAUDE.md` (to see whether
+they already carry the write rule) and keeps a digest cache, a duplicate guard for writes and the `/lr-import` plan in Claude Code's
+plugin storage. It writes no files of its own. The hosted service's privacy policy is
+https://lumberroom.cloud/privacy; a self-hosted engine keeps everything on your own server.
+
 ## Requirements
 
 - Built on Claude Code 2.1.287.
@@ -58,16 +86,16 @@ From the marketplace:
 /plugin install lumberroom-memory@lumberroom
 ```
 
-The plugin brings its own MCP server, connecting to `<baseUrl>/mcp`. Run `/mcp` once and sign in
+The plugin brings its own MCP server, connecting to `mcpUrl`. Run `/mcp` once and sign in
 to `plugin:lumberroom-memory:lumberroom`. Its tools appear as
 `mcp__plugin_lumberroom-memory_lumberroom__memory_search` and so on, so a permission rule or agent
 definition that names `mcp__lumberroom__*` needs the new names.
 
-For a self-hosted engine, set `baseUrl` to it (`claude plugin configure lumberroom-memory@lumberroom
---values-stdin` with `{"baseUrl": "https://lr.example.com"}`, or `/plugin configure`) and restart
-Claude Code. An engine that accepts only static bearer tokens needs its own registered server
+For a self-hosted engine, set `mcpUrl` to its `/mcp` endpoint (`claude plugin configure
+lumberroom-memory@lumberroom --values-stdin` with `{"mcpUrl": "https://lr.example.com/mcp"}`, or
+`/plugin configure`) and restart Claude Code. An engine that accepts only static bearer tokens needs its own registered server
 instead: `claude mcp add --transport http lumberroom <url>/mcp --header "Authorization: Bearer
-lr_..."`.
+<token>"`.
 
 If you already registered a server at the same URL, or your claude.ai account has a connector for
 it, Claude Code keeps one copy and hides the others. The plugin asks which copy is live and talks
@@ -97,7 +125,8 @@ Set them in `/config`, or under `pluginConfigs["lumberroom-memory"].options` in
 | Option | Default | Range | Meaning |
 | --- | --- | --- | --- |
 | `server` | `auto` |  | `auto` uses the bundled server, or a registered `lumberroom` when Claude Code hides the bundled one; else the server's name as `/mcp` lists it |
-| `baseUrl` | `https://mcp.lumberroom.cloud` |  | engine URL: the bundled server connects to `<baseUrl>/mcp`, and `/lr-import` posts here; restart after a change |
+| `mcpUrl` | `https://mcp.lumberroom.cloud/mcp` |  | where the bundled MCP server connects; restart after a change |
+| `baseUrl` | empty |  | engine URL for `/lr-import`; empty takes `mcpUrl` without the trailing `/mcp` |
 | `project` | `auto` |  | `auto` uses the git root's folder name; `none` sends none; else the slug |
 | `recall` | off |  | search with each prompt; costs input tokens on every later turn |
 | `recallExtraProjects` | empty |  | other project slugs to search with each prompt, separated by commas or whitespace. A bare slug applies everywhere; `project=slug1+slug2` applies only in that project, for example `lumberroom-cloud=lumberroom` for a fork that shares its engine's decisions. Claude Code reads plugin options from user, `--settings` or managed settings only, never project settings, so a per-project value goes inside the option |

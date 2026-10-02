@@ -192,4 +192,9 @@ describe('extrasFor', () => {
     expect(extrasFor(config, 'constructor')).toEqual(['shared'])
     expect(extrasFor(config, 'toString')).toEqual(['shared'])
   })
+  test('baseUrl comes from mcpUrl without the trailing /mcp when unset', async () => {
+    expect(readConfig({}).baseUrl).toBe('https://mcp.lumberroom.cloud')
+    expect(readConfig({ mcpUrl: 'https://lr.example.com/mcp/' }).baseUrl).toBe('https://lr.example.com')
+    expect(readConfig({ mcpUrl: 'https://lr.example.com/mcp', baseUrl: 'https://admin.example.com/' }).baseUrl).toBe('https://admin.example.com')
+  })
 })
