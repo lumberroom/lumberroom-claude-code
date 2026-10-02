@@ -24,7 +24,7 @@ import { callTool, isOutage } from '../src/mcp'
 import { allowsOwnCall, OWN_PLUGIN } from '../src/own'
 import { raceSleep } from '../src/race'
 import type { CallOutcome, McpDeps } from '../src/mcp'
-import { serverCandidates } from '../src/server'
+import { BUNDLED_KEY, serverCandidates } from '../src/server'
 import { findGitRoot, resolveProject, slugFromPath } from '../src/project'
 import type { Exists } from '../src/project'
 import { buildRecallBlock, buildReminderBlock, clipQuery, hitsFrom, isEligible, isPersonPrompt, nudgeDue, searchNamespaces, selectHits, toRecalled, UNREACHABLE_TOAST } from '../src/recall'
@@ -88,6 +88,31 @@ let toldNotConnected = false
 /** The candidate that last answered context_bootstrap; the other calls go to it. */
 let activeServer: string | undefined
 const serverName = (): string => activeServer ?? serverCandidates(cfg.server)[0] ?? cfg.server
+/** Every name the plugin may call lumberroom under, for the self-allow and the token count. */
+const knownServers = (): string[] => [...new Set([...serverCandidates(cfg.server), ...triedServers])]
+/** Names serversToTry returned; the self-allow needs them before the first call answers. */
+let triedServers: readonly string[] = []
+
+/**
+ * The names to try, in order. In auto, $.mcp.connect on the bundled key answers with the name the
+ * session runs the server under (the bundled one, a registered duplicate, or a claude.ai connector
+ * with the same URL), and that name goes first.
+ */
+const serversToTry = async ($: Dollar): Promise<readonly string[]> => {
+  const base = serverCandidates(cfg.server)
+  if (cfg.server !== 'auto') return base
+  try {
+    const raced = await raceSleep($.mcp.connect(BUNDLED_KEY), (ms) => $.clock.sleep(ms), cfg.bootstrapTimeoutMs)
+    const answer = raced.timedOut ? undefined : raced.value
+    if (answer?.isConnected === true) {
+      const live = answer.server
+      return [live, ...base.filter((n) => n !== live)]
+    }
+  } catch (err) {
+    debug($, `$.mcp.connect failed: ${messageOf(err)}`)
+  }
+  return base
+}
 
 /** Gap between bootstrap attempts at session start, while MCP servers are still connecting. */
 const BOOTSTRAP_RETRY_MS = 500
@@ -224,7 +249,8 @@ const bootstrap = async ($: Dollar): Promise<'ok' | 'not_connected' | 'failed'> 
   const project = await projectFor($)
   // Claude Code suppresses the bundled server when a registered one has its URL, and that one
   // answers instead; the first candidate that is connected becomes the server for the session.
-  const candidates = serverCandidates(cfg.server)
+  const candidates = await serversToTry($)
+  triedServers = candidates
   let outcome: CallOutcome = { kind: 'not_connected', error: 'no server tried', ms: 0 }
   for (const candidate of candidates) {
     outcome = await callTool(mcpDeps($), candidate, 'context_bootstrap', project === undefined ? {} : { project }, cfg.bootstrapTimeoutMs)
@@ -700,7 +726,7 @@ export const register: Register = (on, options) => {
       await bootstrapAtStart($)
       // A failed bootstrap leaves the cached digest in the section, which classic.SessionStart
       // may already have cut the old hook's block against.
-      if (!serverAbsent && (await read($, digestRef)) === null) {
+      if ((await read($, digestRef)) === null) {
         const cached = await cachedDigest($)
         if (cached !== null) {
           await update($, digestRef, () => cached)
@@ -722,7 +748,10 @@ export const register: Register = (on, options) => {
   on('prompt.compose', async ($, e, next) => {
     const res = await next(e)
     try {
-      if (serverAbsent || res.sections.some((s) => s.id === SECTION_ID)) return res
+      if (res.sections.some((s) => s.id === SECTION_ID)) return res
+      // With no server, a cached digest still fills the section: classic.SessionStart may have cut
+      // the old hook's block against it.
+      if (serverAbsent && (await read($, digestRef)) === null) return res
       const text = await sectionText($)
       await addCost($, (c) => ({ ...c, section: estimateTokens(text) }))
       if (text === '') return res
@@ -756,7 +785,7 @@ export const register: Register = (on, options) => {
 
   // $.mcp.call runs the permission chain even for a plugin's own call (spec 2.4).
   on('tool.check', ($, e, next) =>
-    serverCandidates(cfg.server).some((server) => allowsOwnCall(next.origin.plugin, e.tool, server)) ? { decision: 'allow' as const, reason: `${PLUGIN} calls its own lumberroom tools` } : next(e),
+    knownServers().some((server) => allowsOwnCall(next.origin.plugin, e.tool, server)) ? { decision: 'allow' as const, reason: `${PLUGIN} calls its own lumberroom tools` } : next(e),
   )
 
   // next() sits outside the try block: a failure beneath the plugin must not run the chain twice.
@@ -782,7 +811,7 @@ export const register: Register = (on, options) => {
     }
     if (isDenied) return { deny: GUARD_REASON }
     // The model's own lumberroom calls; the plugin's $.mcp.call results never enter the transcript.
-    if (!serverCandidates(cfg.server).some((server) => isServerTool(e.tool, server)) || next.origin.plugin === PLUGIN) return next(e)
+    if (!knownServers().some((server) => isServerTool(e.tool, server)) || next.origin.plugin === PLUGIN) return next(e)
     const res = await next(e)
     if (res.deny === undefined) await addCost($, (c) => ({ ...c, tools: c.tools + estimateTokens(res.text ?? ''), toolCalls: c.toolCalls + 1 }))
     return res

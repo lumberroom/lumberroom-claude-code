@@ -75,6 +75,8 @@ function world(on: On, answer: Answer = engine, fs: Files = {}) {
     baseSections: [] as { id: string; text: string; scope: 'shared' | 'session' }[],
     startContext: undefined as string[] | undefined,
     http: (() => ({ status: 200, text: '{}' })) as (url: string) => { status: number; text: string },
+    /** What $.mcp.connect answers for the bundled key: a server name, or undefined for not connected. */
+    connectAs: 'plugin:lumberroom-memory:lumberroom' as string | undefined,
   }
   const files = fs.files ?? {}
   const dirs = fs.dirs ?? {}
@@ -135,6 +137,11 @@ function world(on: On, answer: Answer = engine, fs: Files = {}) {
     w.state[e.key] = e.value
     return next(e)
   })
+  on('mcp.connect', () =>
+    w.connectAs === undefined
+      ? { value: { isConnected: false as const, reason: 'not-found' as never, message: 'not connected' } }
+      : { value: { isConnected: true as const, server: w.connectAs } },
+  )
   on('mcp.call', async (_$, e) => {
     w.calls.push({ tool: e.tool, args: e.args, server: e.server })
     // A hook that throws is skipped, so a call the engine rejects is simulated with a deny: its reason is the rejection.
@@ -1080,6 +1087,14 @@ describe('classic.SessionStart before the digest is stored', () => {
     expect((await $.prompt.compose(COMPOSE)).sections.some((s) => s.id === SECTION_ID && s.text.includes('cached fact'))).toBe(true)
   })
 
+  test('with no server connected, the cached digest fills the section', async ($, on) => {
+    const w = world(on, notConnected)
+    w.connectAs = undefined
+    w.stored['digest-cache:proj'] = CACHED
+    await startRetrying($, w, 20)
+    expect((await $.prompt.compose(COMPOSE)).sections.some((s) => s.id === SECTION_ID && s.text.includes('cached fact'))).toBe(true)
+  })
+
   test('cuts the old block once the digest is stored', async ($, on) => {
     const w = world(on)
     w.startContext = [old]
@@ -1115,11 +1130,20 @@ describe('server choice', () => {
     expect(w.calls.map((c) => c.server)).toEqual(['plugin:lumberroom-memory:lumberroom', 'plugin:lumberroom-memory:lumberroom'])
   })
 
+  test('auto follows the name $.mcp.connect answers, such as a claude.ai connector running the same server', { options: { recall: true } }, async ($, on) => {
+    const w = world(on)
+    w.connectAs = 'claude.ai Lumberroom'
+    await $.session.start(START)
+    await send($, 'how do I build this project?')
+    expect(w.calls.map((c) => c.server)).toEqual(['claude.ai Lumberroom', 'claude.ai Lumberroom'])
+  })
+
   test('auto falls back to a registered lumberroom when the bundled server is suppressed', { options: { recall: true } }, async ($, on) => {
     const w = world(on, (tool, args, server) => {
       if (server !== 'lumberroom') throw new Error(`no tool "${tool}" on a server named "${server}"; servers with tools: lumberroom`)
       return engine(tool, args)
     })
+    w.connectAs = undefined
     await $.session.start(START)
     await send($, 'how do I build this project?')
     expect(w.calls.map((c) => c.server)).toEqual(['plugin:lumberroom-memory:lumberroom', 'lumberroom', 'lumberroom'])

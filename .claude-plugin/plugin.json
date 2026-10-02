@@ -1,6 +1,6 @@
 {
   "name": "lumberroom-memory",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "lumberroom as Claude Code's memory: the digest in the system prompt, a periodic search-and-write reminder, optional per-prompt recall, built-in memory off.",
   "author": {
     "name": "the-cybersapien"

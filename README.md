@@ -69,8 +69,9 @@ Claude Code. An engine that accepts only static bearer tokens needs its own regi
 instead: `claude mcp add --transport http lumberroom <url>/mcp --header "Authorization: Bearer
 lr_..."`.
 
-If you already registered a server at the same URL, Claude Code keeps yours and hides the bundled
-one, and the plugin talks to yours. Remove yours (`claude mcp remove lumberroom`) to run on the
+If you already registered a server at the same URL, or your claude.ai account has a connector for
+it, Claude Code keeps one copy and hides the others. The plugin asks which copy is live and talks
+to it. Remove a registered one (`claude mcp remove lumberroom`) to run on the
 bundled server alone.
 
 The manifest is `.claude-plugin/marketplace.json` (marketplace `lumberroom`, plugin

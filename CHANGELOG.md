@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.1] - 2026-10-02
+
+### Fixed
+
+- A claude.ai connector at the same URL can win Claude Code's duplicate check over the bundled
+  server, which left the plugin calling names with no tools. In `auto` the plugin now asks
+  `$.mcp.connect` which name the session runs the server under and calls that one, and its
+  self-allow covers the name from the first call.
+- With no server connected, the cached digest still fills the section, so a session whose old hook
+  block was cut against the cache keeps its memory.
+
 ## [0.2.0] - 2026-10-02
 
 ### Added
