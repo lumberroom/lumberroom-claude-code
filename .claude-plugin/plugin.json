@@ -8,7 +8,7 @@
   "types": "./types/index.d.ts",
   "userConfig": {
     "server": { "type": "string", "title": "MCP server", "description": "The lumberroom MCP server's name as /mcp lists it.", "default": "lumberroom" },
-    "baseUrl": { "type": "string", "title": "Engine URL", "description": "The engine's base URL, used by /lr-import and the grant check only. Recall and writes go through the MCP server.", "default": "https://mcp.lumberroom.cloud" },
+    "baseUrl": { "type": "string", "title": "Engine URL", "description": "The engine's base URL, used by /lr-import only. Recall and writes go through the MCP server.", "default": "https://mcp.lumberroom.cloud" },
     "project": { "type": "string", "title": "Project", "description": "auto takes the git root's folder name as the project slug; none sends no project; anything else is the slug itself.", "default": "auto" },
     "recall": { "type": "boolean", "title": "Recall per prompt", "description": "Search lumberroom with each prompt and attach new hits for the model. Off by default: each block stays in context for the rest of the session and costs input tokens on every later turn, and weak matches fill the context.", "default": false },
     "recallExtraProjects": { "type": "string", "title": "Extra recall projects", "description": "Other project slugs to search with each prompt. A bare slug applies everywhere; project=slug1+slug2 applies only in that project, for example lumberroom-cloud=lumberroom.", "default": "" },

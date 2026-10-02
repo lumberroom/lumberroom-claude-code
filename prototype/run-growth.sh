@@ -15,7 +15,7 @@ prompts=(
   "What model routing does the owner prefer for fixers?"
   "What happened with the refresh token replay in the CLI?"
   "Which repo holds the openclaw plugin?"
-  "What is the rule about touching vyaah-prod?"
+  "What is the rule about touching the production server?"
   "Summarise in one line what you know about the teams build."
 )
 dirs=(--plugin-dir "$here/probe"); [ "$with" = plugin ] && dirs+=(--plugin-dir "$repo")

@@ -1,14 +1,14 @@
 # lumberroom as Claude Code's memory: the mod
 
-**Date:** 2 October 2026 · **Status:** design, with three prototype results measured · **Plugin:**
-`lumberroom-memory` 0.1.0, Apache-2.0 · **Repository:** `github.com/lumberroom/lumberroom-claude-code`
-(local only; not created on GitHub)
+**Date:** 2 October 2026 · **Status:** implemented; `npm run gate` passes with 517 tests; live
+observations in section 14 · **Plugin:** `lumberroom-memory` 0.1.0, Apache-2.0 · **Repository:**
+`github.com/lumberroom/lumberroom-claude-code`
 
-Every behaviour below is a design unless it names a measurement or a file and line. Source prefixes:
+Every behaviour below is implemented. It counts as observed live only where it names a measurement, a
+file and line, or section 14. Source prefixes:
 
-- `CC/`: Claude Code 2.1.287, its mod API declarations
-  (`plugin-authoring/types/claude-code.d.ts`, 20,104 lines, written by the engine as the skill
-  loaded) and the binary's manifest schema.
+- `CC/`: Claude Code 2.1.287, its mod API declarations (`.claude-plugin/types/`) and the binary's
+  manifest schema.
 - `ENG/`: the engine at `../lumberroom`, commit `905319b`.
 - `CLOUD/`: the hosted fork at `../lumberroom-cloud`, commit `a4b84a0`.
 - `OC/`: `../lumberroom-openclaw`, commit `e4e131c`. `HP/`: `../lumberroom-hermes`, commit `87c697f`.
@@ -80,7 +80,7 @@ What follows for the design:
   which is why it rides every N prompts and not every prompt.
 - Owner ruling, 2 October 2026: `recall` defaults to off. The owner's own measurement was about
   1,140 input tokens per turn at the 4,000-character cap; the prototype above measured about 777
-  per block of that size. The two figures come from different runs and have not been reconciled.
+  per block of that size. The two figures come from different runs.
   Either way the cost recurs on every later turn, and the hits it buys are often weak matches.
 
 ### 2.2 `$.mcp.call` returns the payload as JSON text, without `structuredContent`
@@ -143,14 +143,18 @@ src/recall.ts                query clip, hit formatting, dedup, fence neutralisi
 src/race.ts                  a bound on work that takes no signal
 src/own.ts                   the permission decision for the plugin's own engine calls
 src/digest.ts                section text, old-hook suppression
+src/cost.ts                  token estimate and status line text
 src/guard.ts                 built-in memory path matching
 src/writes.ts                write with supersedes retry and duplicate guard
 src/extractor.ts             prompt and parse for the optional extractor
 src/importer.ts              memory files -> proposal facts
 src/importplan.ts            /lr-import all: path decoding, namespace proposal, plan table, argument parsing
-types/index.d.ts             $.state contract
-tests/*.test.ts              claude plugin test
+types/index.d.ts             $.state contract, including the cost atom
+.claude-plugin/marketplace.json  marketplace "lumberroom", plugin lumberroom-memory, source ./
+tests/*.test.ts              claude plugin test; tests/fixtures holds the tools snapshot as TypeScript
 tools-snapshot.json          the engine's tools/list, for drift tests
+scripts/                     capture-tools.mjs, snapshot-to-ts.mjs
+prototype/                   the probe mod and the drivers behind section 2
 ```
 
 Every pure decision lives in `src/` with no `$`, so tests drive it with plain values. `register.ts`
@@ -162,7 +166,7 @@ anything that must survive one lives in `$.state` (session) or `$.store` (across
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `server` | string | `lumberroom` | MCP server name as `/mcp` lists it |
-| `baseUrl` | string | `https://mcp.lumberroom.cloud` | for `/lr-import` and `/admin/whoami` only |
+| `baseUrl` | string | `https://mcp.lumberroom.cloud` | for `/lr-import` only today; `/admin/whoami` is planned for `/lr-asof` |
 | `project` | string | `auto` | `auto` walks to the git root; `none` sends no project; anything else is the slug |
 | `recall` | boolean | `false` | per-prompt recall; the reminder (section 9.2) does not depend on it |
 | `recallExtraProjects` | string | empty | other project slugs searched with each prompt, split on commas and whitespace. A bare `slug` applies in every project; `project=slug1+slug2` applies only when the current project is `project`. Both sides are slugged like `project` and deduplicated; malformed entries (`=x`, `x=`, `a=b=c`) are dropped; the current project's slug is dropped at use time |
@@ -186,14 +190,17 @@ anything that must survive one lives in `$.state` (session) or `$.store` (across
    through the breaker, before the recall gate, so a late server gets its digest with `recall` off
    too.
 2. `prompt.compose` awaits `next(e)` and appends one section,
-   `{ id: "lumberroom:memory", scope: "session", text }`, where `text` is the write rule and then the
-   digest clipped to `digestMaxChars` at the last whole line. The write rule is the body of
-   `ENG/client/CLAUDE.md.snippet` without its markers.
+   `{ id: "lumberroom-memory:memory", scope: "session", text }`. The `text` is the heading
+   `# Durable memory (lumberroom)`, a `Project: <slug>` line when a project is sent, the write rule
+   unless a CLAUDE.md block already carries it, then the digest clipped to `digestMaxChars` at the
+   last whole line. The write rule is the body of `ENG/client/CLAUDE.md.snippet` without its
+   markers.
 3. `prompt.compose` runs per system-prompt render and reads `$.state`, so the section survives
    compaction and `/clear` without a re-fetch: `/clear` ends the session (`session.end`, reason
    `clear`) and starts none, yet the process and its state go on.
-4. A changed digest calls `$.ui.invalidate("prompt.section")` only on a project change, so the cached
-   prefix is not spent every turn.
+4. A stored digest calls `$.ui.invalidate("prompt.section")` on the first digest after none and on a
+   project change, because the engine caches the section and one rendered before the digest arrived
+   holds none. Other refreshes leave the cache alone, so the cached prefix is not spent every turn.
 
 **The old pieces** (owner ruling, 2 October 2026: suppress, do not edit global config):
 
@@ -206,7 +213,9 @@ anything that must survive one lives in `$.state` (session) or `$.store` (across
   mismatch costs a duplicate digest, never lost context.
 - The write rule: when `~/.claude/CLAUDE.md` or the project's `CLAUDE.md` already holds a block whose
   heading is `# Durable memory` and which names `memory_write`, the plugin drops its own copy of the
-  rule and the section carries the digest alone. The plugin never edits either file.
+  rule and the section carries the digest alone. The plugin never edits either file. Observed live on
+  2 October 2026: `~/.claude/CLAUDE.md` carried that block, the rule was left out, and Claude Code's
+  own memory section was absent (section 14).
 
 ## 6. Recall
 
@@ -259,14 +268,17 @@ in a recall block that keeps the data note. A server that is not connected gets 
 A hit is sent once until `/clear` (`session.end` with reason `clear`) or a finished compaction
 (`session.compact` after `next` resolves, not a `precompute`, not a veto, not a subagent's). Both
 reset `lumberroom.seen` to `[]` and `lumberroom.prompts` to 0, because the transcript that held the
-blocks is gone.
+blocks is gone. The prompt counter reset is observed live after a compaction (section 14). The
+`seen` reset is implemented and unobserved: the compaction check ran with recall off.
 
 The first prompt of a session can wait for the bootstrap plus the search, up to `bootstrapTimeoutMs +
 recallTimeoutMs` (6.5 s by default). Later prompts wait at most `recallTimeoutMs`.
 
 On an unreachable or timed-out call the breaker records a failure, and the first failure of an outage
 shows one toast, "lumberroom unreachable: memory was not checked." Nothing is attached and the prompt
-goes on. The kept hits feed the status line and the "why recalled" pane (Step 3).
+goes on. The kept hits are stored in `$.state` as `lastRecall` and `stats` for the recall-and-why
+pane, which [issue #1](https://github.com/lumberroom/lumberroom-claude-code/issues/1) tracks and which
+is not built.
 
 ## 7. Project routing
 
@@ -299,7 +311,7 @@ current slug, which for an explicit `project` setting is that string as given.
   }).realPath`. For a file that does not exist yet the stat fails, so the parent folder is resolved
   the same way and `realParent + basename` is checked. A `MEMORY.md` anywhere else under `~/.claude/`
   is not guarded. `Grep` and `Glob` are absent from the 2.1.287 tool table, so that part is matched
-  by name and is untested against a real call. **`Bash` is not guarded:** a command line has no path
+  by name. **`Bash` is not guarded:** a command line has no path
   argument to read, so `cat` or `rm` on a memory file goes through, as does a `Grep` or `Glob` with
   no `path`. The deny reads `{ deny: "Claude Code's built-in memory is off
   in this session. Use lumberroom: memory_search to read, memory_write to record." }`.
@@ -398,7 +410,7 @@ current slug, which for an explicit `project` setting is that string as given.
      extractor model is asked once per candidate, in order, whether it is the old version of the new
      fact, and the first yes becomes `supersedes` on the single `memory_write`. If that call still
      returns `possible_conflicts`, the guard does not write again: it returns them as `conflicts` on
-     the result for the UI to toast, and the owner settles them in the review queue. A conflict error
+     the result. The owner settles them in the review queue. A conflict error
      naming a newer live head (`ENG/src/services/write.rs:624-630`, "The live row is <uuid>") retries
      once with that id. Two calls at most per fact.
    - **Credential filter.** Before any write the extractor drops a fact whose content matches a
@@ -418,7 +430,10 @@ current slug, which for an explicit `project` setting is that string as given.
    lumberroom." With the extractor on it runs one extraction over the messages about to be compacted
    before calling `next`, waiting 20 s at most in all. On that bound it aborts the model call,
    leaves `extractedThrough` where it was, and compacts anyway. A finished compaction also resets
-   the recall dedup state (section 6).
+   the recall dedup state (section 6) and the cost counters (section 13). Observed live on
+   2 October 2026 with the extractor off: the digest section survived, the keep-facts line reached
+   the compaction instructions, and the prompt counter reset (section 14). The extraction before
+   compaction, the 20 s bound and the dedup reset are implemented and unobserved.
 
 ## 10. Failure behaviour
 
@@ -440,7 +455,7 @@ session and makes no further calls until the next `session.start`.
 
 ## 12. Engine and API proposals
 
-Each is a separate change, not made here. Lines from `ENG/` at `905319b`.
+Each is a separate engine change. Lines from `ENG/` at `905319b`.
 
 | # | Gap | Change | Touches |
 | --- | --- | --- | --- |
@@ -454,3 +469,61 @@ Each is a separate change, not made here. Lines from `ENG/` at `905319b`.
 | P8 | A namespace alias joins the search only as a secondary namespace at the 0.85 other-project penalty, the same weight every project already gets while `SEARCH_INCLUDE_ALL_PROJECTS` is on, so on 2 October 2026 the alias `lumberroom` in `project:lumberroom-cloud` changed no ranking and the D1 decision stayed out of the top 15 | search an alias group's namespaces at primary weight, since an alias says the names denote one subject | `lumberroom-cloud` `src/services/search.rs:196-220` (`alias_namespaces` folded into `secondary`), `src/adapters/postgres/memory.rs` near the `secondary_penalty` bind (`:2036`) |
 | CC1 | `$.mcp.call` drops `structuredContent` (section 2.2) | report to Claude Code | upstream |
 | CC2 | `$.mcp.call` takes no timeout, signal or headers | report to Claude Code; would remove the race in section 2.4 and let the mod send P1's header | upstream |
+
+P4 and P8 interact with one observation from 2 October 2026: a bare short query (`D1 decision`) did
+not surface the right memory, while `Cloudflare D1 port` did at similarity 0.77. Recall depends on
+query wording, which P4 (digest plus recall in one call) does not change and P8 (alias weight) only
+helps when the namespace is searched at all. Neither is a fix for short queries.
+
+## 13. Token status line
+
+`src/cost.ts` estimates what lumberroom adds to the context and `hooks/register.ts` draws it with
+`$.ui.status`. Implemented and unit tested (`tests/cost.test.ts`).
+
+**What it counts.** Three figures and a call count:
+
+- `section`: `estimateTokens(sectionText)`, the system prompt section sent with every request. It is
+  zero while the server is absent.
+- `blocks`: the recall and reminder blocks attached to prompts since the context last emptied.
+- `tools`: the results of the model's own calls to the `lumberroom` server's tools (`mcp__<server>__*`),
+  with a call count. The plugin's own `$.mcp.call` requests are excluded.
+
+**The estimate.** `ceil(chars / 4)`, `CHARS_PER_TOKEN = 4`. The mod API counts tokens only for whole
+context categories, so a per-block count is an estimate. A figure of 1000 or more prints as `1.2k`.
+
+**The line.** `lumberroom ~2.4k tokens in context: digest 2.0k, reminders 30, tools 400 (2 calls)`.
+
+**Reset.** Compaction and `/clear` zero `blocks` and `tools` and keep `section`
+(`afterContextReset`), because the section comes back with the next request.
+
+**When it draws.** The engine caches the prompt section, so `prompt.compose` does not run again after
+`/reload-plugins`. A first build drew only from `prompt.compose` and drew nothing after a reload.
+`session.start` now draws it after the bootstrap, and `prompt.submit` redraws it on every prompt, so a
+line cleared by a reload returns.
+
+## 14. Observed live
+
+On 2 October 2026, Claude Code 2.1.287, against the hosted engine. This is the evidence beyond the
+prototype in section 2 and the list in the README.
+
+- **Compaction.** After a manual `/compact` in an interactive session, the digest section (the
+  `# Durable memory (lumberroom)` heading, the project line and the engine digest) was still in the
+  system prompt. `COMPACT_LINE` appeared in the compaction instructions. The `<lumberroom-reminder>`
+  block arrived on the 8th person prompt after compaction, so the prompt counter reset. The
+  extractor was off, so no extraction ran.
+- **The write rule.** The section left it out because `~/.claude/CLAUDE.md` carries a
+  `# Durable memory` block. Claude Code's own memory section was absent.
+- **Recall wording.** `Cloudflare D1 port` surfaced the right memory at similarity 0.77. A bare
+  `D1 decision` did not.
+- **Gate.** `npm run gate` passes with 517 tests. That is a unit-level result.
+
+## 15. Marketplace and release
+
+`.claude-plugin/marketplace.json` names the marketplace `lumberroom` and lists one plugin,
+`lumberroom-memory`, with source `./`. `npm run validate` checks it and `plugin.json`. The install commands
+are `/plugin marketplace add lumberroom/lumberroom-claude-code`, then
+`/plugin install lumberroom-memory@lumberroom`.
+
+UI work lives in [issue #1](https://github.com/lumberroom/lumberroom-claude-code/issues/1): the
+recall-and-why pane, a cost and latency band and `/lr-asof`, with the status line in section 13 as the
+first piece. The owner dropped toasts from the UI plan on 2 October 2026.

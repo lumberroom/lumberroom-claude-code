@@ -2,6 +2,7 @@
 
 Spec: [spec.md](spec.md). Tasks run in this order. Each lists its files; no two tasks of one batch
 share a file. `npm run gate` (validate, typecheck, `claude plugin test`) closes every batch.
+`validate` checks `plugin.json` and `marketplace.json`.
 
 ## Batch 0: prototype and interface lock (done, 2 October 2026)
 
@@ -9,7 +10,11 @@ share a file. `npm run gate` (validate, typecheck, `claude plugin test`) closes 
 - P0.2 Manifest with `userConfig`, `$.state` contract, typed stubs for every `src/` module,
   `package.json` (TypeScript 5.9.3 for `tsc` only), `tsconfig.json`, smoke test.
 
-## Batch 1: logic and wiring (parallel)
+## Batch 1: logic and wiring (parallel; done, 2 October 2026)
+
+Implemented; `npm run gate` passes with 517 tests. Later additions outside the table: `src/cost.ts`
+(status line), `src/own.ts`, `src/race.ts`, `src/importplan.ts`, and
+`.claude-plugin/marketplace.json`.
 
 | Task | Files | Tests |
 | --- | --- | --- |
@@ -20,25 +25,28 @@ share a file. `npm run gate` (validate, typecheck, `claude plugin test`) closes 
 
 ## Batch 2: integrate and verify (lead)
 
-- I1 `npm run gate` green.
+- I1 `npm run gate` green. Done: 517 tests pass.
 - I2 Load in a hot-reloaded session (`~/.claude/dev-mods/<session>/lumberroom-memory` linked to the
-  repo). Evidence: the system prompt section, a recall block in a transcript, the guard refusing a
-  memory-file write, `/lr-import` refusing with no token, the old hook's digest gone.
-- I3 Token growth over 10 turns with the plugin on, measured the way spec 2.1 measured the probe.
-- I4 One blind reviewer pass over the diff.
+  repo). Observed: the system prompt section, a recall block in a transcript, the guard
+  refusing a memory-file write, `/lr-import` refusing with no token, the old hook's digest gone,
+  compaction and the reminder counter (spec section 14).
 
 ## Batch 3: UI (Step 3), one at a time, each stopped for owner review
 
-1. Status line: memories, hits this prompt, latency, offline.
-2. Toasts: a `memory_write` the model made, and its `possible_conflicts`.
-3. `/lr-review` pane over `review_queue` and `review_decide`, passing `version` back.
-4. "Why recalled" pane: id, source, score, namespace, source agent per hit of the last prompt.
-5. `/lr-asof`: needs `mayReadHistory`; reads `/admin/whoami` and degrades to a message without it.
-6. Pending-writes inbox for extracted facts.
-7. Secret and sensitivity guard on `memory_write` calls the model makes.
-8. Cost and latency band above the prompt.
-9. Stale-memory toast at session start.
+UI work is tracked in [issue #1](https://github.com/lumberroom/lumberroom-claude-code/issues/1).
+Toasts were dropped on 2 October 2026.
 
-## Publish (waits for the owner)
+1. Token status line: implemented and unit tested (`src/cost.ts`, commit
+   `ffd6446`; spec section 13). Replaces the planned memories-hits-latency line.
+2. Dropped: toasts for a `memory_write` and its `possible_conflicts`.
+3. Issue #1: "why recalled" pane, with id, source, score, namespace and source agent per hit of the
+   last prompt.
+4. Issue #1: `/lr-asof`, which needs `mayReadHistory`, reads `/admin/whoami` and degrades to a message
+   without it.
+5. Issue #1: cost and latency band above the prompt.
+6. Dropped: stale-memory toast at session start.
 
-Create `lumberroom/lumberroom-claude-code` on GitHub, push, tag `v0.1.0`. Not before the owner says so.
+## Publish
+
+- Repository `lumberroom/lumberroom-claude-code` created.
+- `.claude-plugin/marketplace.json` added, `npm run validate` checks both manifests.

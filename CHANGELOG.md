@@ -15,6 +15,13 @@
 - `/lr-import`, which sends existing memory files to the engine's proposal queue.
 - An optional extractor, off by default, that writes facts with a duplicate guard and the
   supersedes retry.
+- A token estimate on the status line: the digest section, the reminder and recall blocks, and the
+  results of the model's own lumberroom tool calls, at four characters a token. It draws at session
+  start and on every prompt, and compaction and `/clear` zero the blocks and tools figures.
+- A marketplace manifest, `.claude-plugin/marketplace.json` (marketplace `lumberroom`, plugin
+  `lumberroom-memory`). `npm run validate` checks it and `plugin.json`.
+- A `tool.check` hook that allows the plugin's own calls to `context_bootstrap`, `memory_search` and
+  `memory_write`, and leaves the model's calls to the user's permission rules.
 
 ### Changed
 
@@ -25,7 +32,6 @@
 - `/lr-import all` no longer posts. It proposes a namespace per folder (a path decoded from the
   folder name, else one model guess, else `global`) and waits for `/lr-import confirm`,
   `confirm all` or `skip`; `/lr-import plan` shows the table again.
-
 - Recall hits are fence-neutral: every `<` and `>` in stored text becomes `‹` and `›`.
 - Recall drops hits below `recallMinSimilarity` (default 0.6) and skips prompts under 12 characters.
 - `recallMaxChars` bounds the whole recall block, and a line that does not fit no longer stops the
