@@ -1,0 +1,27 @@
+{
+  "name": "lumberroom-memory",
+  "version": "0.1.0",
+  "description": "lumberroom as Claude Code's memory: the digest in the system prompt, a periodic search-and-write reminder, optional per-prompt recall, built-in memory off.",
+  "author": { "name": "the-cybersapien" },
+  "license": "Apache-2.0",
+  "repository": "https://github.com/lumberroom/lumberroom-claude-code",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "server": { "type": "string", "title": "MCP server", "description": "The lumberroom MCP server's name as /mcp lists it.", "default": "lumberroom" },
+    "baseUrl": { "type": "string", "title": "Engine URL", "description": "The engine's base URL, used by /lr-import and the grant check only. Recall and writes go through the MCP server.", "default": "https://mcp.lumberroom.cloud" },
+    "project": { "type": "string", "title": "Project", "description": "auto takes the git root's folder name as the project slug; none sends no project; anything else is the slug itself.", "default": "auto" },
+    "recall": { "type": "boolean", "title": "Recall per prompt", "description": "Search lumberroom with each prompt and attach new hits for the model. Off by default: each block stays in context for the rest of the session and costs input tokens on every later turn, and weak matches fill the context.", "default": false },
+    "recallExtraProjects": { "type": "string", "title": "Extra recall projects", "description": "Other project slugs to search with each prompt. A bare slug applies everywhere; project=slug1+slug2 applies only in that project, for example lumberroom-cloud=lumberroom.", "default": "" },
+    "recallLimit": { "type": "number", "title": "Recall limit", "description": "Hits asked for per prompt.", "default": 6, "min": 1, "max": 20 },
+    "recallMaxChars": { "type": "number", "title": "Recall block cap", "description": "Characters the whole recall block may add (tags, note, hits and write reminder). Each block stays in context for the rest of the session.", "default": 4000, "min": 500, "max": 16000 },
+    "recallMinSimilarity": { "type": "number", "title": "Recall similarity floor", "description": "Drop hits whose similarity is below this, from 0 to 1. Hits that carry no similarity pass. Prompts under 12 characters skip recall.", "default": 0.6, "min": 0, "max": 1 },
+    "recallTimeoutMs": { "type": "number", "title": "Recall timeout (ms)", "description": "How long a prompt waits for memory_search before going on without it.", "default": 2500, "min": 500, "max": 8000 },
+    "bootstrapTimeoutMs": { "type": "number", "title": "Bootstrap timeout (ms)", "description": "How long session start waits for context_bootstrap.", "default": 4000, "min": 500, "max": 8000 },
+    "digestMaxChars": { "type": "number", "title": "Digest cap", "description": "Characters the digest section of the system prompt may hold.", "default": 8000, "min": 1000, "max": 30000 },
+    "reviewInterval": { "type": "number", "title": "Reminder interval", "description": "Remind the model to search lumberroom before assuming and to write durable facts after the exchange, every N prompts from you, with recall on or off. 0 turns it off.", "default": 8, "min": 0, "max": 100 },
+    "replaceBuiltinMemory": { "type": "boolean", "title": "Replace built-in memory", "description": "Drop Claude Code's own memory section and refuse file tools on its memory files.", "default": true },
+    "extractor": { "type": "string", "title": "Extractor", "description": "off writes nothing on its own. turn extracts every N turns, session-end once as the session ends; both call memory_write directly.", "default": "off", "options": ["off", "turn", "session-end"] },
+    "extractorModel": { "type": "string", "title": "Extractor model", "description": "Model alias the extractor runs on.", "default": "haiku" },
+    "ingestToken": { "type": "string", "title": "Ingest token", "description": "A bearer token with mayIngest, for /lr-import only. Kept in secure storage.", "sensitive": true }
+  }
+}

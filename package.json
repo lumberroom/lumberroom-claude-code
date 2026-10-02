@@ -1,0 +1,19 @@
+{
+  "name": "lumberroom-claude-code",
+  "private": true,
+  "version": "0.1.0",
+  "description": "lumberroom as Claude Code's memory, as a Claude Code mod.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "validate": "claude plugin validate .",
+    "test": "claude plugin test .",
+    "gate": "npm run validate && npm run typecheck && npm run test",
+    "capture-tools": "node scripts/capture-tools.mjs && node scripts/snapshot-to-ts.mjs"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@modelcontextprotocol/sdk": "1.30.1"
+  }
+}
