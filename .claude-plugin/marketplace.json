@@ -1,0 +1,19 @@
+{
+  "name": "lumberroom",
+  "owner": {
+    "name": "Aditya Aggarwal",
+    "email": "aditya@cybersapien.xyz"
+  },
+  "metadata": {
+    "description": "Claude Code plugins for lumberroom, the shared memory every AI agent you use reads and writes."
+  },
+  "plugins": [
+    {
+      "name": "lumberroom-memory",
+      "source": "./",
+      "description": "lumberroom as Claude Code's memory: the digest in the system prompt, a periodic search-and-write reminder, optional per-prompt recall, built-in memory off.",
+      "version": "0.1.0",
+      "category": "memory"
+    }
+  ]
+}
