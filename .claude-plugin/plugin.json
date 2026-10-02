@@ -1,7 +1,7 @@
 {
   "name": "lumberroom-memory",
   "displayName": "lumberroom memory",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "lumberroom as Claude Code's memory: the digest in the system prompt, a periodic search-and-write reminder, optional per-prompt recall, built-in memory off.",
   "author": {
     "name": "the-cybersapien"
@@ -123,13 +123,8 @@
     "extractor": {
       "type": "string",
       "title": "Extractor",
-      "description": "off writes nothing on its own. turn extracts every N turns, session-end once as the session ends; both call memory_write directly.",
-      "default": "off",
-      "options": [
-        "off",
-        "turn",
-        "session-end"
-      ]
+      "description": "One of off, turn or session-end. off writes nothing on its own. turn extracts every N turns, session-end once as the session ends; both call memory_write directly. Any other value reads as off.",
+      "default": "off"
     },
     "extractorModel": {
       "type": "string",

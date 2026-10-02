@@ -126,6 +126,13 @@ describe('callTool', () => {
 const NOT_CONNECTED_MSG =
   'no tool "context_bootstrap" on a server named "lumberroom"; servers with tools: claude_ai_Google_Drive, grafana'
 
+describe('classifyError denied', () => {
+  test('a permission refusal from the auto mode classifier is denied', async () => {
+    const msg = 'lumberroom-memory: $.mcp.call(plugin:lumberroom-memory:lumberroom, context_bootstrap) refused: The server-side auto mode classifier gave no verdict'
+    expect(classifyError(new Error(msg))).toBe('denied')
+  })
+})
+
 describe('classifyError not_connected', () => {
   test('the wording for a suppressed plugin server is not_connected', async () => {
     const msg = 'lumberroom-memory: $.mcp.call: no connected MCP tool "context_bootstrap" on a server named "plugin:lumberroom-memory:lumberroom"'

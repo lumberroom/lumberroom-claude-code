@@ -55,7 +55,8 @@ const NOT_CONNECTED = [/no (connected )?(mcp )?tool "[^"]+" on a server named/i,
 /** A thrown error from $.mcp.call: a permission refusal, a server that is not connected, or an outage. */
 export function classifyError(err: unknown): 'denied' | 'unreachable' | 'not_connected' {
   const msg = err instanceof Error ? err.message : String(err ?? '')
-  if (/permission|haven'?t granted|denied/i.test(msg)) return 'denied'
+  // `$.mcp.call(server, tool) refused: <reason>` is Claude Code's wording for a permission refusal.
+  if (/permission|haven'?t granted|denied|\) refused: /i.test(msg)) return 'denied'
   return NOT_CONNECTED.some((re) => re.test(msg)) ? 'not_connected' : 'unreachable'
 }
 

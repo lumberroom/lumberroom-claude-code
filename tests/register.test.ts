@@ -5,7 +5,7 @@ import type { Engine } from 'claude-code/testing'
 import { COMPACT_LINE } from '../hooks/register'
 import { OLD_HOOK_OPENING, SECTION_ID } from '../src/digest'
 import { GUARD_REASON } from '../src/guard'
-import { DATA_NOTE, NUDGE_LINE, RECALL_CLOSE, RECALL_OPEN, REMINDER_CLOSE, REMINDER_OPEN, UNREACHABLE_TOAST } from '../src/recall'
+import { DATA_NOTE, NUDGE_LINE, PERMISSION_TOAST, RECALL_CLOSE, RECALL_OPEN, REMINDER_CLOSE, REMINDER_OPEN, UNREACHABLE_TOAST } from '../src/recall'
 
 const HOME = '/home/u'
 const CWD = '/work/proj'
@@ -1150,6 +1150,19 @@ describe('server choice', () => {
     expect((w.submitted[0]?.context ?? [])[0]).toMatch('Build with pnpm')
   })
 
+})
+
+describe('permission refusal', () => {
+  test('a refused call toasts the permissions page once a session, and the breaker stays closed', { options: { recall: true } }, async ($, on) => {
+    const w = world(on, (tool, _args, server) => {
+      throw new Error(`lumberroom-memory: $.mcp.call(${server}, ${tool}) refused: The server-side auto mode classifier gave no verdict`)
+    })
+    await $.session.start(START)
+    await send($, 'how do I build this project?')
+    await send($, 'and how do I run the tests?')
+    expect(w.toasts).toEqual([PERMISSION_TOAST])
+    expect(w.state['breaker']).toBeUndefined()
+  })
 })
 
 describe('token status line', () => {

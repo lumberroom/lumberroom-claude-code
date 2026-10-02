@@ -115,7 +115,11 @@ field is not a row in `/config`. `register` receives every value as
   granted it yet." `CC/` says the call needs no prompt; in practice it runs the `tool.check` chain.
   A `tool.check` hook that answers `allow` when `next.origin.plugin` is the plugin's own name and the
   tool is one of its lumberroom tools let both calls through, and the model's own calls still go to
-  the user's rules. The plugin ships that hook, scoped to the tools it calls.
+  the user's rules. The plugin shipped that hook until 0.3.0, when Anthropic's directory refused it
+  (`MOD_ANSWERS_ALLOW`: a mod may not answer `allow` on `tool.check`). Since 0.3.0 the user allows the
+  three tools in their own rules (`docs/permissions.md`). Without a rule, auto mode refuses the
+  session-start call outright ("the request that produced this action did not ask for one"), and the
+  plugin toasts a link to that page once a session.
 - **A pending `$` call stops the hook's clock** (`CC/` `HookBudget`: the budget stands still while a
   `next` or `$` call is in flight). A hung `$.mcp.call` would hold `prompt.submit` with no bound,
   and the call takes no signal. Every call races `$.clock.sleep(timeoutMs)`. The sleep is a `$` call

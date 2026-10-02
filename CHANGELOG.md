@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.0] - 2026-10-02
+
+### Changed
+
+- The plugin no longer allows its own calls through the permission check. Anthropic's directory does
+  not list a mod whose `tool.check` hook answers `allow`, so your permission rules now decide. Allow
+  `context_bootstrap`, `memory_search` and `memory_write` once, as `docs/permissions.md` shows.
+- `extractor` drops its `options` list, which the directory does not accept yet; any value other
+  than `turn` or `session-end` still reads as `off`.
+
+### Added
+
+- `docs/permissions.md`, the rules to add for each name lumberroom can run under.
+- One toast a session when your permission rules refuse the plugin's calls, linking to that page.
+
 ## [0.2.2] - 2026-10-02
 
 ### Added

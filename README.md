@@ -114,8 +114,10 @@ claude --plugin-dir /path/to/lumberroom-claude-code
 or, for development, link the folder into a session's mods folder
 (`~/.claude/dev-mods/<session>/lumberroom-memory`) and accept hot reloading when Claude Code asks.
 
-The plugin allows its own calls to `context_bootstrap`, `memory_search` and `memory_write` through
-the permission check. The model's own calls to lumberroom still follow your permission rules.
+Claude Code runs the plugin's own calls to `context_bootstrap`, `memory_search` and `memory_write`
+through your permission rules, so allow those three tools once: [docs/permissions.md](docs/permissions.md)
+has the rules to add. Until you do, the session starts without the digest and the plugin shows a
+toast that links to the page.
 
 ## Options
 
@@ -172,7 +174,6 @@ behaves the same way, so this section lists what a live Claude Code 2.1.287 sess
 Observed in a live 2.1.287 session:
 
 - Recall attached on 10 of 10 headless turns.
-- The `tool.check` self-allow showed in the debug log.
 - The guard refused a `Write` to a memory file in an interactive session.
 - The old hook's block was removed from the SessionStart context in a headless run.
 - `/lr-import` with no `ingestToken` answered with the setting hint and posted nothing, in an interactive session.

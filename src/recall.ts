@@ -21,6 +21,9 @@ export const NUDGE_LINE =
 export const REMINDER_OPEN = '<lumberroom-reminder>'
 export const REMINDER_CLOSE = '</lumberroom-reminder>'
 export const UNREACHABLE_TOAST = 'lumberroom unreachable: memory was not checked.'
+/** Shown once a session when Claude Code's permission rules refuse the plugin's own calls. */
+export const PERMISSION_TOAST =
+  "lumberroom-memory: Claude Code's permission rules refused the plugin's lumberroom calls, so memory was not loaded. Allow them: https://github.com/lumberroom/lumberroom-claude-code/blob/main/docs/permissions.md"
 export const QUERY_MAX_CHARS = 1000
 /** Shorter prompts ("yes", "ok do it") carry no topic, and the engine still returns its nearest rows. */
 export const MIN_PROMPT_CHARS = 12

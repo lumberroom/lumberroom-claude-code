@@ -21,13 +21,13 @@ import {
 } from '../src/importplan'
 import type { PlanEntry } from '../src/importplan'
 import { callTool, isOutage } from '../src/mcp'
-import { allowsOwnCall, OWN_PLUGIN } from '../src/own'
+import { OWN_PLUGIN } from '../src/own'
 import { raceSleep } from '../src/race'
 import type { CallOutcome, McpDeps } from '../src/mcp'
 import { BUNDLED_KEY, serverCandidates } from '../src/server'
 import { findGitRoot, resolveProject, slugFromPath } from '../src/project'
 import type { Exists } from '../src/project'
-import { buildRecallBlock, buildReminderBlock, clipQuery, hitsFrom, isEligible, isPersonPrompt, nudgeDue, searchNamespaces, selectHits, toRecalled, UNREACHABLE_TOAST } from '../src/recall'
+import { buildRecallBlock, buildReminderBlock, clipQuery, hitsFrom, isEligible, isPersonPrompt, nudgeDue, PERMISSION_TOAST, searchNamespaces, selectHits, toRecalled, UNREACHABLE_TOAST } from '../src/recall'
 import { writeFact } from '../src/writes'
 import type { Conflict, Fact, WriteDeps } from '../src/writes'
 import type { LumberroomDigest } from '../types'
@@ -85,12 +85,14 @@ let notConnectedPrompts = 0
 /** Set by the third such prompt; only the next session.start clears it. */
 let recallStopped = false
 let toldNotConnected = false
+/** The permissions toast goes out once a session. */
+let toldDenied = false
 /** The candidate that last answered context_bootstrap; the other calls go to it. */
 let activeServer: string | undefined
 const serverName = (): string => activeServer ?? serverCandidates(cfg.server)[0] ?? cfg.server
-/** Every name the plugin may call lumberroom under, for the self-allow and the token count. */
+/** Every name the plugin may call lumberroom under, for the token count. */
 const knownServers = (): string[] => [...new Set([...serverCandidates(cfg.server), ...triedServers])]
-/** Names serversToTry returned; the self-allow needs them before the first call answers. */
+/** Names serversToTry returned, counted before the first call answers. */
 let triedServers: readonly string[] = []
 
 /**
@@ -206,6 +208,10 @@ const record = async ($: Dollar, outcome: CallOutcome): Promise<void> => {
     return
   }
   debug($, `the permission check refused an engine call: ${outcome.kind === 'denied' ? outcome.error : ''}`)
+  if (!toldDenied) {
+    toldDenied = true
+    $.ui.toast(PERMISSION_TOAST, { timeoutMs: 12_000 })
+  }
 }
 
 /** Applies `change` to the token estimate and shows the result on the status line. */
@@ -710,6 +716,7 @@ export const register: Register = (on, options) => {
       notConnectedPrompts = 0
       recallStopped = false
       toldNotConnected = false
+      toldDenied = false
       projectMemo = undefined
       activeServer = undefined
       try {
@@ -782,11 +789,6 @@ export const register: Register = (on, options) => {
       return res
     }
   })
-
-  // $.mcp.call runs the permission chain even for a plugin's own call (spec 2.4).
-  on('tool.check', ($, e, next) =>
-    knownServers().some((server) => allowsOwnCall(next.origin.plugin, e.tool, server)) ? { decision: 'allow' as const, reason: `${PLUGIN} calls its own lumberroom tools` } : next(e),
-  )
 
   // next() sits outside the try block: a failure beneath the plugin must not run the chain twice.
   on('prompt.submit', async ($, e, next) => {
