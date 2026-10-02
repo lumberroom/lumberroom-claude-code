@@ -8,6 +8,8 @@ import type { EngineInterface, Register } from 'claude-code'
 import { allow, CLOSED, failure, success } from '../src/breaker'
 import { DEFAULTS, extrasFor, readConfig } from '../src/config'
 import type { Config } from '../src/config'
+import { afterContextReset, estimateTokens, formatStatus, isServerTool, NO_COST } from '../src/cost'
+import type { Cost } from '../src/cost'
 import { buildSection, digestFrom, hasDurableMemoryBlock, SECTION_ID, stripOldHookBlock } from '../src/digest'
 import { buildExtractPrompt, buildJudgePrompt, parseFacts, parseJudge, turnsFrom } from '../src/extractor'
 import type { Turn } from '../src/extractor'
@@ -47,6 +49,7 @@ const statsRef = atom(
   { recalls: 0, hitsAttached: 0, lastMs: null, offline: false, writes: 0 },
 )
 const extractedRef = atom({ plugin: 'lumberroom-memory', key: 'extractedThrough' } as const, 0)
+const costRef = atom({ plugin: 'lumberroom-memory', key: 'cost' } as const, NO_COST)
 
 /** A session end gets about 1.5 s for the whole chain; a model call needs more than this. */
 const SESSION_END_MIN_MS = 1000
@@ -174,6 +177,20 @@ const record = async ($: Dollar, outcome: CallOutcome): Promise<void> => {
   debug($, `the permission check refused an engine call: ${outcome.kind === 'denied' ? outcome.error : ''}`)
 }
 
+/** Applies `change` to the token estimate and shows the result on the status line. */
+const addCost = async ($: Dollar, change: (c: Cost) => Cost): Promise<void> => {
+  try {
+    $.ui.status(formatStatus(await update($, costRef, change)))
+  } catch (err) {
+    logFailure($, 'status line', err)
+  }
+}
+
+const sectionText = async ($: Dollar): Promise<string> => {
+  const digest = await read($, digestRef)
+  return buildSection(digest?.text ?? '', { includeRule: !hasRule, maxChars: cfg.digestMaxChars, project: digest?.project ?? null })
+}
+
 /** Forgets which hits this conversation has seen, and restarts the nudge count. */
 const resetDedup = async ($: Dollar): Promise<void> => {
   try {
@@ -182,6 +199,7 @@ const resetDedup = async ($: Dollar): Promise<void> => {
   } catch (err) {
     logFailure($, 'dedup reset', err)
   }
+  await addCost($, afterContextReset)
 }
 
 /** One prompt found no connected server. No breaker failure: the server is absent, not down. */
@@ -639,6 +657,10 @@ export const register: Register = (on, options) => {
       hasRule = claudeMd.some(hasDurableMemoryBlock)
 
       await bootstrapAtStart($)
+      // The engine caches the section, so prompt.compose may not run again after a reload; the
+      // line has to be drawn here or it stays blank until a count changes.
+      const section = serverAbsent ? 0 : estimateTokens(await sectionText($))
+      await addCost($, (c) => ({ ...c, section }))
     } catch (err) {
       logFailure($, 'session.start', err)
     }
@@ -651,8 +673,8 @@ export const register: Register = (on, options) => {
     const res = await next(e)
     try {
       if (serverAbsent || res.sections.some((s) => s.id === SECTION_ID)) return res
-      const digest = await read($, digestRef)
-      const text = buildSection(digest?.text ?? '', { includeRule: !hasRule, maxChars: cfg.digestMaxChars, project: digest?.project ?? null })
+      const text = await sectionText($)
+      await addCost($, (c) => ({ ...c, section: estimateTokens(text) }))
       if (text === '') return res
       return { sections: [...res.sections, { id: SECTION_ID, text, scope: 'session' as const }] }
     } catch (err) {
@@ -694,7 +716,10 @@ export const register: Register = (on, options) => {
     } catch (err) {
       logFailure($, 'prompt.submit', err)
     }
-    return block === '' ? next(e) : next({ ...e, context: [...(e.context ?? []), block] })
+    // Every prompt redraws the line, so a status cleared by a reload comes back on the next prompt.
+    await addCost($, (c) => (block === '' ? c : { ...c, blocks: c.blocks + estimateTokens(block) }))
+    if (block === '') return next(e)
+    return next({ ...e, context: [...(e.context ?? []), block] })
   })
 
   on('tool.call', async ($, e, next) => {
@@ -704,7 +729,12 @@ export const register: Register = (on, options) => {
     } catch (err) {
       logFailure($, 'tool.call', err)
     }
-    return isDenied ? { deny: GUARD_REASON } : next(e)
+    if (isDenied) return { deny: GUARD_REASON }
+    // The model's own lumberroom calls; the plugin's $.mcp.call results never enter the transcript.
+    if (!isServerTool(e.tool, cfg.server) || next.origin.plugin === PLUGIN) return next(e)
+    const res = await next(e)
+    if (res.deny === undefined) await addCost($, (c) => ({ ...c, tools: c.tools + estimateTokens(res.text ?? ''), toolCalls: c.toolCalls + 1 }))
+    return res
   })
 
   on('turn.complete', async ($, e, next) => {

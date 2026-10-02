@@ -33,6 +33,11 @@ may change between releases.
   call). `Bash` is not guarded: `cat` or `rm` on a memory file goes through. `/lr-import` sends what
   those files already hold to the engine's proposal queue for you to review.
 
+- **A token counter on the status line.** Under the prompt the plugin shows an estimate, at four
+  characters a token, of what lumberroom adds to the context: the digest section, the reminder and
+  recall blocks, and the results of the model's own lumberroom tool calls. Compaction and `/clear`
+  zero the last two.
+
 The plugin writes nothing on its own unless you turn on the extractor. The model writes when it
 calls `memory_write`.
 
@@ -82,6 +87,9 @@ Set them in `/config`, or under `pluginConfigs["lumberroom-memory"].options` in
 
 ## Commands
 
+An option edited in `~/.claude/settings.json` by hand takes effect after `/reload-plugins`; a change through `/config` reloads the plugin itself.
+
+
 - `/lr-import`: send this project's memory files to the proposal queue. Needs `ingestToken` and an
   https `baseUrl` (http only for `localhost` and `127.0.0.1`). Each call waits 15 s, the closing
   call 5 s, and the result line reports posted, new, reinforced, confirmed, refused and blocked
@@ -110,6 +118,7 @@ Measured so far:
 - The guard refused a `Write` to a memory file in an interactive session.
 - The old hook's block was removed from the SessionStart context in a headless run.
 - `/lr-import` with no `ingestToken` answered with the setting hint and posted nothing, in an interactive session.
+- `/lr-import all` listed the one folder holding memory files and proposed `project:lr-import-test` from the path it found; `/lr-import confirm 1` posted 3 proposals (3 new) to the ingest queue with the expected namespaces (2 under the project, 1 under `user:me`), and a second `confirm 1` posted nothing. The `ingestToken` was read from `pluginConfigs` in `~/.claude/settings.json`.
 - Recall in an interactive session attached one hit to a prompt about the import command, where the same session attached five unrelated hits before the relevance floor existed.
 
 Filled in by the lead after the next live run: the relevance floor and the 12-character minimum

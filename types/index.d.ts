@@ -50,6 +50,14 @@ export type LumberroomStats = {
   writes: number
 }
 
+/** The status line's token estimate; see src/cost.ts. */
+export type LumberroomCost = {
+  section: number
+  blocks: number
+  tools: number
+  toolCalls: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'lumberroom-memory': {
@@ -63,6 +71,7 @@ declare module 'claude-code' {
       stats: LumberroomStats
       /** Index into $.session.messages() the extractor last read up to. */
       extractedThrough: number
+      cost: LumberroomCost
     }
   }
 }

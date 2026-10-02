@@ -53,6 +53,9 @@ function world(on: On, answer: Answer = engine, fs: Files = {}) {
     logs: [] as string[],
     commands: [] as string[],
     invalidated: [] as string[],
+    statuses: [] as (string | undefined)[],
+    /** The text core would report for a tool call the bottom hook answers. */
+    toolText: undefined as string | undefined,
     fetched: [] as { url: string; method?: string; body?: string; headers?: Record<string, string> }[],
     modelPrompts: [] as string[],
     submitted: [] as { text: string; context?: readonly string[] }[],
@@ -119,6 +122,10 @@ function world(on: On, answer: Answer = engine, fs: Files = {}) {
     w.logs.push(e.text)
     return { value: undefined }
   })
+  on('ui.status', (_$, e) => {
+    w.statuses.push(e.text)
+    return { value: undefined }
+  })
   on('ui.invalidate', (_$, e) => {
     w.invalidated.push(e.event)
     return { value: undefined }
@@ -167,7 +174,7 @@ function world(on: On, answer: Answer = engine, fs: Files = {}) {
   })
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('turn.complete', (_$, e) => ({ text: e.answer }))
-  on('tool.call', () => ({ result: 'ran' }))
+  on('tool.call', () => (w.toolText === undefined ? { result: 'ran' } : { result: 'ran', text: w.toolText }))
   on('tool.check', () => ({ decision: 'ask' as const }))
   return w
 }
@@ -1070,6 +1077,46 @@ describe('session.compact', () => {
     await $.session.start(START)
     await $.session.compact({ trigger: 'auto', messages: TURNS })
     expect(w.compacted[0]?.instructions).toBe(COMPACT_LINE)
+  })
+})
+
+describe('token status line', () => {
+  const last = (w: { statuses: (string | undefined)[] }) => w.statuses[w.statuses.length - 1] ?? ''
+
+  test('counts the section, the reminder blocks and the model\'s lumberroom results', { options: { reviewInterval: 1 } }, async ($, on) => {
+    const w = world(on)
+    await $.session.start(START)
+    const section = (await $.prompt.compose(COMPOSE)).sections.find((s) => s.id === SECTION_ID)?.text ?? ''
+    expect(last(w)).toMatch(`digest ${Math.ceil(section.length / 4)},`)
+
+    await send($, 'what did we decide about the build?')
+    const block = w.submitted[0]?.context?.[0] ?? ''
+    expect(last(w)).toMatch(`reminders ${Math.ceil(block.length / 4)},`)
+
+    w.toolText = 'x'.repeat(400)
+    await $.tool.call({ tool: 'mcp__lumberroom__memory_search', query: 'build' })
+    expect(last(w)).toMatch('tools 100 (1 call)')
+
+    await $.tool.call({ tool: 'Read', file_path: `${CWD}/a.md` })
+    expect(last(w)).toMatch('tools 100 (1 call)')
+  })
+
+  test('session start draws the line before any prompt', async ($, on) => {
+    const w = world(on)
+    await $.session.start(START)
+    expect(last(w)).toMatch(/^lumberroom ~\d+ tokens in context: digest [1-9]/)
+  })
+
+  test('compaction clears the transcript parts and keeps the digest', { options: { reviewInterval: 1 } }, async ($, on) => {
+    const w = world(on)
+    await $.session.start(START)
+    await $.prompt.compose(COMPOSE)
+    await send($, 'what did we decide about the build?')
+    w.toolText = 'x'.repeat(400)
+    await $.tool.call({ tool: 'mcp__lumberroom__memory_search', query: 'build' })
+    await $.session.compact({ trigger: 'manual', messages: TURNS })
+    expect(last(w)).toMatch(', reminders 0, tools 0 (0 calls)')
+    expect(last(w)).not.toMatch('digest 0,')
   })
 })
 
