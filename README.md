@@ -49,6 +49,10 @@ change between releases.
   the results of the model's own lumberroom tool calls. The line reads `lumberroom ~2.4k tokens in
   context: digest 2.0k, reminders 30, tools 400 (2 calls)`. `session.start` and every prompt redraw
   it. Compaction and `/clear` zero the reminders and tools figures.
+- **The rules as a skill, for Cowork.** `skills/lumberroom-memory` carries the same
+  read and write rules. In Claude Code the digest section already holds them; in Cowork, where only
+  the MCP server and the skill load, the skill is what tells the model to bootstrap, search and
+  write. The MCP server's own tool descriptions say what each tool does and give no orders.
 
 The plugin writes nothing on its own unless you turn on the extractor. When on, the extractor calls
 `memory_write` directly. Otherwise the model writes when it calls `memory_write`.

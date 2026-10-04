@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.2] - 2026-10-04
+
+### Added
+
+- `skills/lumberroom-memory`, the memory rules as a skill: bootstrap at the start, search before
+  assuming, write durable facts without asking, and leave review and delete to the user. Since
+  engine #96 the MCP server's descriptions give no orders, so in Cowork, where the plugin's hooks
+  do not run, the skill is what carries them. The text is the engine's
+  `client/skills/lumberroom-memory/SKILL.md`.
+
 ## [0.3.1] - 2026-10-04
 
 ### Changed
