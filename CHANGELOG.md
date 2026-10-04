@@ -14,6 +14,12 @@
 
 - `SECURITY.md`, with private vulnerability reporting through GitHub.
 - Weekly Dependabot updates for the npm development dependencies.
+- A README section on each hook, the tools the plugin calls itself and the addresses it contacts.
+
+### Fixed
+
+- The importer's byte-order-mark strip wrote U+FEFF as a literal character, which the directory's
+  validation holds for review. It is now an escape.
 
 ## [0.3.0] - 2026-10-02
 
