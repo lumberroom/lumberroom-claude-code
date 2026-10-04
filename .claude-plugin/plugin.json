@@ -1,7 +1,7 @@
 {
   "name": "lumberroom-memory",
   "displayName": "lumberroom memory",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "lumberroom as Claude Code's memory: the digest in the system prompt, a periodic search-and-write reminder, optional per-prompt recall, built-in memory off.",
   "author": {
     "name": "the-cybersapien"
@@ -30,8 +30,8 @@
     },
     "mcpUrl": {
       "type": "string",
-      "title": "MCP server URL",
-      "description": "Where the bundled MCP server connects: https://mcp.lumberroom.cloud/mcp, or <your engine>/mcp for a self-hosted one. Restart Claude Code after a change.",
+      "title": "Engine MCP URL",
+      "description": "Your engine's /mcp endpoint, from which baseUrl is derived. The bundled MCP server always connects to https://mcp.lumberroom.cloud/mcp; a self-hosted engine needs its own registered server, named in the server option.",
       "default": "https://mcp.lumberroom.cloud/mcp"
     },
     "baseUrl": {

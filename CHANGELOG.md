@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.1] - 2026-10-04
+
+### Changed
+
+- The bundled MCP server connects to `https://mcp.lumberroom.cloud/mcp`, written into `.mcp.json`.
+  A `${user_config.mcpUrl}` reference there failed the awesome-ai-plugins source scan, which
+  accepts only a literal `https://` or loopback URL. `mcpUrl` still sets `baseUrl`; a self-hosted
+  engine registers its own server and names it in `server`, as the README shows.
+
+### Added
+
+- `SECURITY.md`, with private vulnerability reporting through GitHub.
+- Weekly Dependabot updates for the npm development dependencies.
+
 ## [0.3.0] - 2026-10-02
 
 ### Changed

@@ -18,7 +18,7 @@ export interface RecallExtras {
 
 export interface Config {
   server: string
-  /** Where the bundled MCP server connects; Claude Code reads it from .mcp.json. */
+  /** The engine's /mcp endpoint, the source of baseUrl. The bundled server's URL is fixed in .mcp.json. */
   mcpUrl: string
   /** For /lr-import: the option, else mcpUrl without its trailing /mcp. */
   baseUrl: string
