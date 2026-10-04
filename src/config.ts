@@ -18,9 +18,9 @@ export interface RecallExtras {
 
 export interface Config {
   server: string
-  /** The engine's /mcp endpoint, the source of baseUrl. The bundled server's URL is fixed in .mcp.json. */
+  /** https://<mcpHost>/mcp, the same URL .mcp.json builds for the bundled server. */
   mcpUrl: string
-  /** For /lr-import: the option, else mcpUrl without its trailing /mcp. */
+  /** For /lr-import: the option, else https://<mcpHost>. */
   baseUrl: string
   /** `auto`, `none`, or a slug. */
   project: string
@@ -115,12 +115,14 @@ export function readConfig(options: Readonly<Record<string, unknown>>): Config {
   }
 
   const extractor = options.extractor
-  const mcpUrl = str(options.mcpUrl, DEFAULTS.mcpUrl).replace(/\/+$/, '')
+  // .mcp.json pastes the raw option between https:// and /mcp, so read it the same way here.
+  const mcpHost = str(options.mcpHost, 'mcp.lumberroom.cloud')
+  const mcpUrl = `https://${mcpHost}/mcp`
   const token = typeof options.ingestToken === 'string' ? options.ingestToken.trim() : ''
   const config: Config = {
     server: str(options.server, DEFAULTS.server),
     mcpUrl,
-    baseUrl: str(options.baseUrl, mcpUrl.replace(/\/mcp$/, '')).replace(/\/+$/, ''),
+    baseUrl: str(options.baseUrl, `https://${mcpHost}`).replace(/\/+$/, ''),
     project: str(options.project, DEFAULTS.project),
     recall: bool(options.recall, DEFAULTS.recall),
     recallExtraProjects: extras(options.recallExtraProjects),

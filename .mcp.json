@@ -2,7 +2,7 @@
   "mcpServers": {
     "lumberroom": {
       "type": "http",
-      "url": "https://mcp.lumberroom.cloud/mcp"
+      "url": "https://${user_config.mcpHost}/mcp"
     }
   }
 }

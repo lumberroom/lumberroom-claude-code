@@ -85,17 +85,17 @@ From the marketplace:
 /plugin install lumberroom-memory@lumberroom
 ```
 
-The plugin brings its own MCP server, connecting to `https://mcp.lumberroom.cloud/mcp`. Run `/mcp` once and sign in
+The plugin brings its own MCP server, connecting to `https://<mcpHost>/mcp`. Run `/mcp` once and sign in
 to `plugin:lumberroom-memory:lumberroom`. Its tools appear as
 `mcp__plugin_lumberroom-memory_lumberroom__memory_search` and so on, so a permission rule or agent
 definition that names `mcp__lumberroom__*` needs the new names.
 
-For a self-hosted engine, register its server yourself (`claude mcp add --transport http lr-self
-https://lr.example.com/mcp`, adding `--header "Authorization: Bearer <token>"` for an engine that
-accepts only static bearer tokens), then set `server` to `lr-self` and `mcpUrl` to the same URL so
-`/lr-import` finds the engine. Disable the bundled server in `/mcp` if you don't use
-lumberroom.cloud. The bundled server's URL is fixed because plugin directories reject a `.mcp.json`
-URL that is not a literal `https://` address.
+For a self-hosted engine, set `mcpHost` to its host, with a port if it needs one
+(`claude plugin configure lumberroom-memory@lumberroom --values-stdin` with
+`{"mcpHost": "lr.example.com"}`, or `/config`), and restart Claude Code. The bundled server then
+connects to `https://lr.example.com/mcp`. An engine that accepts only static bearer tokens needs its
+own registered server instead: `claude mcp add --transport http lumberroom <url>/mcp --header
+"Authorization: Bearer <token>"`.
 
 If you already registered a server at the same URL, or your claude.ai account has a connector for
 it, Claude Code keeps one copy and hides the others. The plugin asks which copy is live and talks
@@ -127,8 +127,8 @@ Set them in `/config`, or under `pluginConfigs["lumberroom-memory"].options` in
 | Option | Default | Range | Meaning |
 | --- | --- | --- | --- |
 | `server` | `auto` |  | `auto` uses the bundled server, or a registered `lumberroom` when Claude Code hides the bundled one; else the server's name as `/mcp` lists it |
-| `mcpUrl` | `https://mcp.lumberroom.cloud/mcp` |  | your engine's `/mcp` endpoint; sets `baseUrl` when that is empty. The bundled server always connects to lumberroom.cloud |
-| `baseUrl` | empty |  | engine URL for `/lr-import`; empty takes `mcpUrl` without the trailing `/mcp` |
+| `mcpHost` | `mcp.lumberroom.cloud` |  | host the bundled MCP server connects to, at `https://<mcpHost>/mcp`; restart after a change |
+| `baseUrl` | empty |  | engine URL for `/lr-import`; empty takes `https://<mcpHost>` |
 | `project` | `auto` |  | `auto` uses the git root's folder name; `none` sends none; else the slug |
 | `recall` | off |  | search with each prompt; costs input tokens on every later turn |
 | `recallExtraProjects` | empty |  | other project slugs to search with each prompt, separated by commas or whitespace. A bare slug applies everywhere; `project=slug1+slug2` applies only in that project, for example `lumberroom-cloud=lumberroom` for a fork that shares its engine's decisions. Claude Code reads plugin options from user, `--settings` or managed settings only, never project settings, so a per-project value goes inside the option |

@@ -4,10 +4,11 @@
 
 ### Changed
 
-- The bundled MCP server connects to `https://mcp.lumberroom.cloud/mcp`, written into `.mcp.json`.
-  A `${user_config.mcpUrl}` reference there failed the awesome-ai-plugins source scan, which
-  accepts only a literal `https://` or loopback URL. `mcpUrl` still sets `baseUrl`; a self-hosted
-  engine registers its own server and names it in `server`, as the README shows.
+- `mcpHost` replaces `mcpUrl`. It defaults to `mcp.lumberroom.cloud`, and the bundled MCP server
+  connects to `https://<mcpHost>/mcp`, so a self-hosted engine still needs one setting. `.mcp.json`
+  now spells the scheme out, which the awesome-ai-plugins source scan requires: it rejected a URL
+  that was a bare `${user_config.mcpUrl}`. If you set `mcpUrl`, set `mcpHost` to its host.
+- `baseUrl` defaults to `https://<mcpHost>`.
 
 ### Added
 
