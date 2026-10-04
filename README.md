@@ -49,6 +49,28 @@ change between releases.
 The plugin writes nothing on its own unless you turn on the extractor. When on, the extractor calls
 `memory_write` directly. Otherwise the model writes when it calls `memory_write`.
 
+## Hooks
+
+Every hook lives in `hooks/register.ts`. None answers a permission check or changes a permission
+mode, and none runs a shell command.
+
+| Hook | What it does |
+| --- | --- |
+| `session.start` | Calls `context_bootstrap` on the lumberroom server, caches the digest, registers `/lr-import` and draws the status line |
+| `prompt.compose` | Adds the digest and the write rule to the system prompt as one section |
+| `prompt.section` (`memory`) | Removes Claude Code's built-in memory section when `replaceBuiltinMemory` is on |
+| `classic.SessionStart` | Cuts the old lumberroom shell hook's digest block out of the SessionStart context once the plugin holds its own digest; every other entry passes through unchanged |
+| `prompt.submit` | Adds the reminder every `reviewInterval` prompts and, with `recall` on, calls `memory_search` and attaches the hits |
+| `tool.call` | Refuses file tools on Claude Code's memory files when `replaceBuiltinMemory` is on, and counts the tokens of the model's own lumberroom calls |
+| `turn.complete`, `session.end`, `session.compact` | Run the extractor when it is on: a model call through Claude Code, then `memory_search` and `memory_write` |
+| `command.run` (`lr-import`) | Runs `/lr-import`, which posts this project's memory files to the engine's proposal queue when you run it; `/lr-import all` posts nothing until you confirm a folder |
+
+The plugin calls three lumberroom tools itself, through the MCP server Claude Code connects:
+`context_bootstrap`, `memory_search` and `memory_write`. It contacts two addresses, both from your
+options: the MCP server at `https://<mcpHost>/mcp`, and `baseUrl` for `/lr-import`. `/lr-import`
+sends your `ingestToken`, which you enter as a sensitive option, only to `baseUrl`, and refuses a
+`baseUrl` that is not https outside localhost.
+
 ## What it sends, and where
 
 The plugin talks to one place: the lumberroom engine, lumberroom.cloud by default or your own. It sends nothing to any other server. What goes there:
