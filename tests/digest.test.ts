@@ -6,9 +6,7 @@ import {
   buildSection,
   digestFrom,
   hasDurableMemoryBlock,
-  stripOldHookBlock,
 } from '../src/digest'
-import { OLD_HOOK_BLOCK, OLD_HOOK_BLOCK_UNTRUNCATED, OTHER_HOOK_CONTEXT, TRUNCATION_LINE } from './fixtures/old-hook'
 
 describe('digestFrom', () => {
   test('reads text and the memory count from a parsed object', () => {
@@ -85,52 +83,6 @@ describe('buildSection', () => {
     const out = buildSection('x'.repeat(500), { includeRule: true, maxChars: WRITE_RULE.length + 100, project: null })
     expect(out.includes('xxxx')).toBe(false)
     expect(out.includes(WRITE_RULE)).toBe(true)
-  })
-})
-
-describe('stripOldHookBlock', () => {
-  test('removes a block that stands alone', () => {
-    expect(stripOldHookBlock(OLD_HOOK_BLOCK)).toEqual({ text: '', stripped: true })
-  })
-
-  test('removes a block with no truncation line', () => {
-    expect(stripOldHookBlock(OLD_HOOK_BLOCK_UNTRUNCATED)).toEqual({ text: '', stripped: true })
-  })
-
-  test('keeps another hook that follows after a blank line', () => {
-    const out = stripOldHookBlock(`${OLD_HOOK_BLOCK}\n\n${OTHER_HOOK_CONTEXT}`)
-    expect(out).toEqual({ text: OTHER_HOOK_CONTEXT, stripped: true })
-  })
-
-  test('keeps another hook that follows a block with no truncation line', () => {
-    const out = stripOldHookBlock(`${OLD_HOOK_BLOCK_UNTRUNCATED}\n\n${OTHER_HOOK_CONTEXT}`)
-    expect(out).toEqual({ text: OTHER_HOOK_CONTEXT, stripped: true })
-  })
-
-  test('keeps another hook that comes before the block', () => {
-    const out = stripOldHookBlock(`${OTHER_HOOK_CONTEXT}\n\n${OLD_HOOK_BLOCK}`)
-    expect(out).toEqual({ text: OTHER_HOOK_CONTEXT, stripped: true })
-  })
-
-  test('keeps hooks on both sides and joins them with one blank line', () => {
-    const before = 'first hook text'
-    const out = stripOldHookBlock(`${before}\n\n${OLD_HOOK_BLOCK}\n\n\n${OTHER_HOOK_CONTEXT}`)
-    expect(out.text).toBe(`${before}\n\n${OTHER_HOOK_CONTEXT}`)
-    expect(out.stripped).toBe(true)
-  })
-
-  test('stops at the truncation line even when digest-like text follows', () => {
-    const out = stripOldHookBlock(`${OLD_HOOK_BLOCK}\n- a bullet from another hook`)
-    expect(out.text).toBe('- a bullet from another hook')
-  })
-
-  test('leaves text with no opening line untouched', () => {
-    const text = `${OTHER_HOOK_CONTEXT}\n\n${TRUNCATION_LINE}`
-    expect(stripOldHookBlock(text)).toEqual({ text, stripped: false })
-  })
-
-  test('leaves an empty string untouched', () => {
-    expect(stripOldHookBlock('')).toEqual({ text: '', stripped: false })
   })
 })
 

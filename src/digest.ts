@@ -1,5 +1,5 @@
-// The system-prompt section: the write rule and the engine's digest. Also the two pieces that keep
-// the old SessionStart shell hook and the CLAUDE.md block from doubling it (spec 5).
+// The system-prompt section: the write rule and the engine's digest, and the check that keeps the
+// CLAUDE.md block from doubling the rule (spec 5).
 
 export const SECTION_ID = 'lumberroom-memory:memory'
 export const DIGEST_HEADING = '# Durable memory (lumberroom)'
@@ -28,10 +28,6 @@ runs long and that is bloat. Two facts from one exchange are two calls.
 
 Do not write transient chatter, file contents, secrets, or anything you would not want repeated
 back next month.`
-
-/** The first line of the old shell hook's block (ENG crates/lumberroom bootstrap --hook). */
-export const OLD_HOOK_OPENING = 'Durable memory for this user, retrieved automatically at session start'
-export const OLD_HOOK_TRUNCATION_END = 'use memory_search for the rest)_'
 
 /**
  * context_bootstrap's parsed data -> { text, memories }. `text` is data.text when a string, else
@@ -74,56 +70,6 @@ export function buildSection(digest: string, opts: { includeRule: boolean; maxCh
   }
   if (clipped === '') return opts.includeRule ? prefix : ''
   return `${prefix}\n\n${clipped}`
-}
-
-// Lines the hook's digest can contain. A non-blank line outside this set after a blank line is
-// another hook's text, so the block ends before the blank line.
-function isDigestSyntax(line: string): boolean {
-  return (
-    line.startsWith('-') ||
-    line.startsWith('#') ||
-    line.startsWith('Store:') ||
-    line.startsWith('Active project') ||
-    line.startsWith('_(') ||
-    /^\s/.test(line)
-  )
-}
-
-/**
- * Cuts the old shell hook's block out of a SessionStart additionalContext. The block runs from
- * OLD_HOOK_OPENING to the end of OLD_HOOK_TRUNCATION_END when that comes first, else to the first
- * blank line followed by a line that is not digest syntax (not starting with `-`, `#`, `Store:`,
- * `Active project`, `_(` or whitespace), else to the end. Blank lines left at the seam collapse to
- * one. With no opening line the text comes back untouched and `stripped` is false.
- */
-export function stripOldHookBlock(additionalContext: string): { text: string; stripped: boolean } {
-  const start = additionalContext.indexOf(OLD_HOOK_OPENING)
-  if (start < 0) return { text: additionalContext, stripped: false }
-
-  let end = additionalContext.length
-  const trunc = additionalContext.indexOf(OLD_HOOK_TRUNCATION_END, start)
-  if (trunc >= 0) end = trunc + OLD_HOOK_TRUNCATION_END.length
-
-  // Walk line by line from the opening; stop at a blank line that precedes foreign text.
-  const lines = additionalContext.slice(start, end).split('\n')
-  let offset = start
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i] as string
-    if (line.trim() === '') {
-      let j = i + 1
-      while (j < lines.length && (lines[j] as string).trim() === '') j++
-      if (j < lines.length && !isDigestSyntax(lines[j] as string)) {
-        end = offset
-        break
-      }
-    }
-    offset += line.length + 1
-  }
-
-  const before = additionalContext.slice(0, start).trimEnd()
-  const after = additionalContext.slice(end).trim()
-  const text = before !== '' && after !== '' ? `${before}\n\n${after}` : before !== '' ? before : after
-  return { text, stripped: true }
 }
 
 /** True when a CLAUDE.md holds a `# Durable memory` heading and names memory_write after it. */

@@ -22,9 +22,9 @@ change between releases.
 
 - **The digest in the system prompt.** At session start the plugin calls `context_bootstrap` for the
   project and adds the digest and the write rule as one section of the system prompt. It does not
-  edit `CLAUDE.md` or your settings. Once the plugin holds its own digest it cuts the shell hook's
-  block out of the SessionStart context; until then the old block stays, so a failed bootstrap loses
-  nothing. When `~/.claude/CLAUDE.md` or the project's `CLAUDE.md` already carries the write rule,
+  edit `CLAUDE.md` or your settings. If you still run the old `lumberroom bootstrap --hook` shell
+  hook, remove it from the `SessionStart` hooks in `~/.claude/settings.json`, or the session gets
+  the digest twice. When `~/.claude/CLAUDE.md` or the project's `CLAUDE.md` already carries the write rule,
   the plugin leaves its own copy of the rule out of the section. The check reads
   `~/.claude/CLAUDE.md` and `<git root>/CLAUDE.md` (the working directory when there is no git root)
   for a `# Durable memory` heading followed by `memory_write`.
@@ -59,46 +59,90 @@ The plugin writes nothing on its own unless you turn on the extractor. When on, 
 
 ## Hooks
 
-Every hook lives in `hooks/register.ts`. None answers a permission check or changes a permission
-mode, and none runs a shell command.
+Every hook lives in `hooks/register.ts`. None answers a permission check, changes a permission
+mode, or rewrites a settings, agent, command or file-write event. The plugin runs no shell command,
+spawns no process or agent, and calls no shell tool.
 
 | Hook | What it does |
 | --- | --- |
 | `session.start` | Calls `context_bootstrap` on the lumberroom server, caches the digest, registers `/lr-import` and draws the status line |
 | `prompt.compose` | Adds the digest and the write rule to the system prompt as one section |
 | `prompt.section` (`memory`) | Removes Claude Code's built-in memory section when `replaceBuiltinMemory` is on |
-| `classic.SessionStart` | Cuts the old lumberroom shell hook's digest block out of the SessionStart context once the plugin holds its own digest; every other entry passes through unchanged |
 | `prompt.submit` | Adds the reminder every `reviewInterval` prompts and, with `recall` on, calls `memory_search` and attaches the hits |
-| `tool.call` | Refuses file tools on Claude Code's memory files when `replaceBuiltinMemory` is on, and counts the tokens of the model's own lumberroom calls |
+| `tool.call` | See below |
 | `turn.complete`, `session.end`, `session.compact` | Run the extractor when it is on: a model call through Claude Code, then `memory_search` and `memory_write` |
-| `command.run` (`lr-import`) | Runs `/lr-import`, which posts this project's memory files to the engine's proposal queue when you run it; `/lr-import all` posts nothing until you confirm a folder |
+| `command.run` (`lr-import`) | Answers `/lr-import`, the plugin's own command; no other command reaches this hook |
 
-The plugin calls three lumberroom tools itself, through the MCP server Claude Code connects:
-`context_bootstrap`, `memory_search` and `memory_write`. It contacts two addresses, both from your
-options: the MCP server at `https://<mcpHost>/mcp`, and `baseUrl` for `/lr-import`. `/lr-import`
-sends your `ingestToken`, which you enter as a sensitive option, only to `baseUrl`, and refuses a
-`baseUrl` that is not https outside localhost.
+**What `tool.call` does with the calls it sees.** It reads the tool name and the path argument. With
+`replaceBuiltinMemory` on, it refuses `Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Grep`
+and `Glob` when the path lands in `~/.claude/MEMORY.md` or `~/.claude/projects/*/memory/`, and
+answers with the reason. That refusal is the plugin's own rule, applied before your permission
+rules, and turning the option off removes it. For a call to a lumberroom tool it measures the length
+of the result for the token counter. It passes every other call on unchanged, and it never
+approves a call, never rewrites one and never sends what it sees anywhere.
 
-## What it sends, and where
+## What it calls and fetches
 
-The plugin talks to one place: the lumberroom engine, lumberroom.cloud by default or your own. It sends nothing to any other server. What goes there:
+**Tools the plugin calls itself, without the model asking.** All three are lumberroom tools on the
+MCP server Claude Code connects (`$.mcp.call`), and Claude Code runs each one through your
+permission rules:
 
-- **At session start:** a `context_bootstrap` call with the project slug (the git root's folder
-  name). The engine answers with the digest.
-- **With each prompt, only when `recall` is on:** a `memory_search` call carrying the prompt text,
-  clipped, and the project slug.
-- **When the extractor is on:** facts a model pulled from the conversation, sent with
-  `memory_write`, each preceded by a `memory_search` for similar rows. The extraction itself runs
-  on your Claude account through Claude Code, with no third party involved.
-- **On `/lr-import`:** the contents of Claude Code's memory files under `~/.claude/projects/`, posted
-  to the engine's proposal queue with your `ingestToken`. Nothing is posted until you run the
-  command, and `/lr-import all` posts nothing until you confirm a folder.
-- **The model's own calls:** when Claude calls `memory_search`, `memory_write` or another lumberroom
-  tool, those calls go to the same engine under your permission rules.
+| Tool | When |
+| --- | --- |
+| `context_bootstrap` | At session start, retried for up to `bootstrapTimeoutMs` while the server connects; on later prompts until one answers, if session start got none |
+| `memory_search` | With each prompt from you when `recall` is on; with the extractor on, once before each extracted fact is written, to find the row it may replace |
+| `memory_write` | With the extractor on, once for each fact it extracted. Off by default |
 
-On your machine the plugin reads `~/.claude/CLAUDE.md` and the project's `CLAUDE.md` (to see whether
-they already carry the write rule) and keeps a digest cache, a duplicate guard for writes and the `/lr-import` plan in Claude Code's
-plugin storage. It writes no files of its own. The hosted service's privacy policy is
+The tool names are fixed text in the code. The plugin calls no other tool. It also makes model calls
+through Claude Code (`$.model.complete`, on `extractorModel`) for the extractor, for the judge that
+decides whether a new fact replaces an old one, and for the namespace guess in `/lr-import all`.
+
+**Network requests.** The plugin contacts two hosts, both set in your options:
+
+- **The MCP server**, at `https://<mcpHost>/mcp`, `https://mcp.lumberroom.cloud/mcp` by default.
+  Claude Code makes these connections; the plugin only asks for the tool calls above.
+- **`baseUrl`**, `https://<mcpHost>` by default, only when you run `/lr-import` or
+  `/lr-import confirm`. The plugin makes these requests itself with `$.http.fetch`, three kinds of
+  `POST` carrying your `ingestToken` as a bearer: `/admin/ingest/runs` opens an ingest run,
+  `/admin/ingest/proposals` sends the memory files as proposals in batches, and
+  `/admin/ingest/runs/<id>/close` closes the run. It refuses a `baseUrl` that is not https, except
+  for `localhost` and `127.0.0.1`.
+
+The address is an option because a self-hosted engine runs on its own host. The plugin fetches no
+code and no instructions: the engine's answers are the digest, search hits and ingest counts, and
+the plugin shows them to the model as data.
+
+## What it reads, what it sends, and where
+
+Everything goes to the lumberroom engine, lumberroom.cloud by default or your own. Nothing goes to
+any other server.
+
+**From the conversation:**
+
+- **Your prompt text**, clipped, with the project slug, in a `memory_search` call. Only when
+  `recall` is on.
+- **The conversation's messages**, when the extractor is on. A model call through Claude Code reads
+  the turns since the last extraction and pulls out facts; that call runs on your Claude account,
+  with no third party involved. The facts, not the transcript, go to the engine with `memory_write`,
+  each preceded by a `memory_search` on the fact's text.
+- **At session start**, the project slug (the git root's folder name) in `context_bootstrap`. No
+  conversation text goes with it.
+
+**From your machine:**
+
+- `~/.claude/CLAUDE.md` and the project's `CLAUDE.md`, to see whether they already carry the write
+  rule. Their text stays on your machine.
+- Claude Code's memory files under `~/.claude/projects/*/memory/`, read and posted to the engine's
+  proposal queue only when you run `/lr-import` or `/lr-import confirm`. `/lr-import all` lists the
+  folders and posts nothing.
+- For the memory guard, the path a file tool names and where its links resolve. The paths stay on
+  your machine.
+
+**The model's own calls:** when Claude calls `memory_search`, `memory_write` or another lumberroom
+tool, those calls go to the same engine under your permission rules.
+
+The plugin keeps a digest cache, a duplicate guard for writes and the `/lr-import` plan in Claude
+Code's plugin storage. It writes no files of its own. The hosted service's privacy policy is
 https://lumberroom.cloud/privacy; a self-hosted engine keeps everything on your own server.
 
 ## Requirements
@@ -197,7 +241,7 @@ through `/config` reloads the plugin itself.
 
 ## Implemented versus verified
 
-Everything above is implemented. `npm run gate` passes with 517 tests, a unit-level result: it covers
+Everything above is implemented. `npm run gate` passes with 509 tests, a unit-level result: it covers
 the logic and the hooks `claude plugin test` can reach. A unit test does not show that a live session
 behaves the same way, so this section lists what a live Claude Code 2.1.287 session has shown.
 
@@ -205,7 +249,6 @@ Observed in a live 2.1.287 session:
 
 - Recall attached on 10 of 10 headless turns.
 - The guard refused a `Write` to a memory file in an interactive session.
-- The old hook's block was removed from the SessionStart context in a headless run.
 - `/lr-import` with no `ingestToken` answered with the setting hint and posted nothing, in an interactive session.
 - `/lr-import all` listed the one folder holding memory files and proposed `project:lr-import-test` from the path it found; `/lr-import confirm 1` posted 3 proposals (3 new) to the ingest queue with the expected namespaces (2 under the project, 1 under `user:me`), and a second `confirm 1` posted nothing. The `ingestToken` was read from `pluginConfigs` in `~/.claude/settings.json`.
 - Recall in an interactive session attached one hit to a prompt about the import command, where the same session attached five unrelated hits before the relevance floor existed.
@@ -223,7 +266,7 @@ piece. Toasts are dropped from the plan. Engine proposals P1 to P8 are in [docs/
 
 ```
 npm install          # TypeScript, for type-checking only
-npm run gate         # validates both manifests, tsc, claude plugin test (517 tests on 2 October 2026)
+npm run gate         # validates both manifests, tsc, claude plugin test (509 tests on 4 October 2026)
 ```
 
 Design and measurements: [docs/spec.md](docs/spec.md). Task order: [docs/plan.md](docs/plan.md).

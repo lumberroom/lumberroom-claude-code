@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### Removed
+
+- The `classic.SessionStart` hook that cut the old `lumberroom bootstrap --hook` block out of the
+  SessionStart context. The plugin directory holds any mod that changes a `classic.*` result, so
+  the plugin now passes that event through untouched. If you still run the old shell hook, remove
+  it from `~/.claude/settings.json`, or the session gets the digest twice. The digest cache stays:
+  it fills the section when the bootstrap fails.
+
+### Changed
+
+- The README says which tools the plugin calls itself and when, what the `tool.call` hook does
+  with the calls it sees, the three `POST` requests `/lr-import` makes and to which host, and what
+  the plugin reads from the conversation and your machine and where it goes.
+
 ## [0.3.2] - 2026-10-04
 
 ### Added

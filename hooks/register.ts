@@ -10,7 +10,7 @@ import { DEFAULTS, extrasFor, readConfig } from '../src/config'
 import type { Config } from '../src/config'
 import { afterContextReset, estimateTokens, formatStatus, isServerTool, NO_COST } from '../src/cost'
 import type { Cost } from '../src/cost'
-import { buildSection, digestFrom, hasDurableMemoryBlock, SECTION_ID, stripOldHookBlock } from '../src/digest'
+import { buildSection, digestFrom, hasDurableMemoryBlock, SECTION_ID } from '../src/digest'
 import { buildExtractPrompt, buildJudgePrompt, parseFacts, parseJudge, turnsFrom } from '../src/extractor'
 import type { Turn } from '../src/extractor'
 import { GUARD_REASON, GUARDED_TOOLS, isBuiltinMemoryPath, normalizePath, parentOf, pathArg } from '../src/guard'
@@ -287,11 +287,7 @@ const bootstrap = async ($: Dollar): Promise<'ok' | 'not_connected' | 'failed'> 
   return 'ok'
 }
 
-/**
- * The last digest fetched for a project, kept across sessions in $.store. Claude Code runs
- * classic.SessionStart before the session exists, when an MCP call fails, so the old hook's block
- * can only be cut against this copy; it also fills the section when the fresh bootstrap fails.
- */
+/** The last digest fetched for a project, kept across sessions in $.store. It fills the section when the fresh bootstrap fails. */
 const cacheKey = (project: string | undefined): string => `digest-cache:${project ?? '-'}`
 
 const cachedDigest = async ($: Dollar): Promise<LumberroomDigest | null> => {
@@ -731,8 +727,7 @@ export const register: Register = (on, options) => {
       hasRule = claudeMd.some(hasDurableMemoryBlock)
 
       await bootstrapAtStart($)
-      // A failed bootstrap leaves the cached digest in the section, which classic.SessionStart
-      // may already have cut the old hook's block against.
+      // A failed bootstrap leaves the cached digest in the section.
       if ((await read($, digestRef)) === null) {
         const cached = await cachedDigest($)
         if (cached !== null) {
@@ -756,8 +751,7 @@ export const register: Register = (on, options) => {
     const res = await next(e)
     try {
       if (res.sections.some((s) => s.id === SECTION_ID)) return res
-      // With no server, a cached digest still fills the section: classic.SessionStart may have cut
-      // the old hook's block against it.
+      // With no server, a cached digest still fills the section.
       if (serverAbsent && (await read($, digestRef)) === null) return res
       const text = await sectionText($)
       await addCost($, (c) => ({ ...c, section: estimateTokens(text) }))
@@ -770,25 +764,6 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.section', { name: 'memory' }, ($, e, next) => (cfg.replaceBuiltinMemory ? { text: null } : next(e)))
-
-  // The old shell hook's digest would double the one in the system prompt, but only once ours
-  // exists. Claude Code runs this before session.start, so on a fresh start the cached digest from
-  // an earlier session decides; with neither, the old block is the only memory the session gets,
-  // so it stays.
-  on('classic.SessionStart', async ($, e, next) => {
-    const res = await next(e)
-    try {
-      if (serverAbsent || !Array.isArray(res.additionalContext)) return res
-      const digest = (await read($, digestRef)) ?? (await cachedDigest($))
-      if (digest === null || digest.text.trim() === '') return res
-      const entries = res.additionalContext.map((entry) => stripOldHookBlock(entry))
-      if (!entries.some((entry) => entry.stripped)) return res
-      return { ...res, additionalContext: entries.map((entry) => entry.text).filter((text) => text.trim() !== '') }
-    } catch (err) {
-      logFailure($, 'classic.SessionStart', err)
-      return res
-    }
-  })
 
   // next() sits outside the try block: a failure beneath the plugin must not run the chain twice.
   on('prompt.submit', async ($, e, next) => {
