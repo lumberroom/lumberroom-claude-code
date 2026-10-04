@@ -8,6 +8,10 @@ Claude Code's own file memory is switched off. Recall with each prompt is availa
 default. It targets lumberroom.cloud or a self-hosted engine through an MCP server the plugin
 brings with it. The live sessions listed below ran against the hosted engine.
 
+[![One memory for all your AI agents: Lumberroom in Claude Code](https://i.ytimg.com/vi/pwxtlSd0JZY/maxresdefault.jpg)](https://youtu.be/pwxtlSd0JZY)
+
+More videos: [Lumberroom playlist](https://www.youtube.com/playlist?list=PLICXFDm9bubU)
+
 Built for Claude Code. The digest, the reminder, the status line and the memory guard are Claude
 Code hooks, so on claude.ai, the desktop app or Cowork only the bundled MCP server applies.
 
