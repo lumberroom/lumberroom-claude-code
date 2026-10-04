@@ -13,7 +13,7 @@
     "capture-tools": "node scripts/capture-tools.mjs && node scripts/snapshot-to-ts.mjs"
   },
   "devDependencies": {
-    "typescript": "5.9.3",
+    "typescript": "7.0.2",
     "@modelcontextprotocol/sdk": "1.30.1"
   }
 }
