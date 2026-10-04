@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.1] - 2026-10-04
+
+### Changed
+
+- `mcpHost` replaces `mcpUrl`. It defaults to `mcp.lumberroom.cloud`, and the bundled MCP server
+  connects to `https://<mcpHost>/mcp`, so a self-hosted engine still needs one setting. `.mcp.json`
+  now spells the scheme out, which the awesome-ai-plugins source scan requires: it rejected a URL
+  that was a bare `${user_config.mcpUrl}`. If you set `mcpUrl`, set `mcpHost` to its host.
+- `baseUrl` defaults to `https://<mcpHost>`.
+
+### Added
+
+- `SECURITY.md`, with private vulnerability reporting through GitHub.
+- Weekly Dependabot updates for the npm development dependencies.
+
 ## [0.3.0] - 2026-10-02
 
 ### Changed

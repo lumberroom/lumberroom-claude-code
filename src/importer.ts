@@ -83,7 +83,7 @@ export function checkBaseUrl(baseUrl: string): string | null {
   if (!m) return refusal
   if ((m[1] as string).toLowerCase() === 'https') return null
   if ((m[1] as string).toLowerCase() !== 'http') return refusal
-  // The host follows the last `@`, so `http://localhost@evil.example` is evil.example.
+  // The host follows the last `@`, so userinfo naming localhost before it does not make the URL local.
   const authority = m[2] as string
   const host = authority.slice(authority.lastIndexOf('@') + 1).replace(/:\d*$/, '').toLowerCase()
   return host === 'localhost' || host === '127.0.0.1' ? null : refusal
@@ -103,7 +103,7 @@ function unquote(value: string): string {
 export function parseMemoryFile(fileName: string, text: string): MemoryFile | null {
   const base = fileName.slice(fileName.lastIndexOf('/') + 1)
   if (base === 'MEMORY.md') return null
-  const lines = text.replace(/\r\n?/g, '\n').replace(/^﻿/, '').split('\n')
+  const lines = text.replace(/\r\n?/g, '\n').replace(/^\uFEFF/, '').split('\n')
   if (lines[0]?.trim() !== '---') return null
   // The first `---` after the opener closes the block. A body may hold its own rule lines.
   let close = -1

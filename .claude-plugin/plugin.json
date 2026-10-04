@@ -1,7 +1,7 @@
 {
   "name": "lumberroom-memory",
   "displayName": "lumberroom memory",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "lumberroom as Claude Code's memory: the digest in the system prompt, a periodic search-and-write reminder, optional per-prompt recall, built-in memory off.",
   "author": {
     "name": "the-cybersapien"
@@ -28,16 +28,16 @@
       "description": "auto uses the server this plugin bundles, or a registered server named lumberroom when Claude Code suppresses the bundled one as a duplicate. Anything else is the MCP server's name as /mcp lists it.",
       "default": "auto"
     },
-    "mcpUrl": {
+    "mcpHost": {
       "type": "string",
-      "title": "MCP server URL",
-      "description": "Where the bundled MCP server connects: https://mcp.lumberroom.cloud/mcp, or <your engine>/mcp for a self-hosted one. Restart Claude Code after a change.",
-      "default": "https://mcp.lumberroom.cloud/mcp"
+      "title": "MCP host",
+      "description": "Host of the engine the bundled MCP server connects to, with a port if it needs one and without https://. The plugin connects to https://<host>/mcp. mcp.lumberroom.cloud by default; set your own engine's host to self-host. Restart Claude Code after a change.",
+      "default": "mcp.lumberroom.cloud"
     },
     "baseUrl": {
       "type": "string",
       "title": "Engine URL",
-      "description": "The engine's base URL for /lr-import. Empty takes it from mcpUrl without the trailing /mcp.",
+      "description": "The engine's base URL for /lr-import. Empty takes https://<MCP host>.",
       "default": ""
     },
     "project": {

@@ -192,9 +192,11 @@ describe('extrasFor', () => {
     expect(extrasFor(config, 'constructor')).toEqual(['shared'])
     expect(extrasFor(config, 'toString')).toEqual(['shared'])
   })
-  test('baseUrl comes from mcpUrl without the trailing /mcp when unset', async () => {
+  test('mcpUrl and baseUrl come from mcpHost, lumberroom.cloud by default', async () => {
+    expect(readConfig({}).mcpUrl).toBe('https://mcp.lumberroom.cloud/mcp')
     expect(readConfig({}).baseUrl).toBe('https://mcp.lumberroom.cloud')
-    expect(readConfig({ mcpUrl: 'https://lr.example.com/mcp/' }).baseUrl).toBe('https://lr.example.com')
-    expect(readConfig({ mcpUrl: 'https://lr.example.com/mcp', baseUrl: 'https://admin.example.com/' }).baseUrl).toBe('https://admin.example.com')
+    expect(readConfig({ mcpHost: 'lr.example.com:8443' }).mcpUrl).toBe('https://lr.example.com:8443/mcp')
+    expect(readConfig({ mcpHost: 'lr.example.com' }).baseUrl).toBe('https://lr.example.com')
+    expect(readConfig({ mcpHost: 'lr.example.com', baseUrl: 'https://admin.example.com/' }).baseUrl).toBe('https://admin.example.com')
   })
 })
