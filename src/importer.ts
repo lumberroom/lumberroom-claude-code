@@ -83,7 +83,7 @@ export function checkBaseUrl(baseUrl: string): string | null {
   if (!m) return refusal
   if ((m[1] as string).toLowerCase() === 'https') return null
   if ((m[1] as string).toLowerCase() !== 'http') return refusal
-  // The host follows the last `@`, so `http://localhost@<host>` names <host>, not localhost.
+  // The host follows the last `@`, so userinfo naming localhost before it does not make the URL local.
   const authority = m[2] as string
   const host = authority.slice(authority.lastIndexOf('@') + 1).replace(/:\d*$/, '').toLowerCase()
   return host === 'localhost' || host === '127.0.0.1' ? null : refusal
