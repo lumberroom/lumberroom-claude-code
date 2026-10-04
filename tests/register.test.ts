@@ -3,7 +3,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
 import { COMPACT_LINE } from '../hooks/register'
-import { OLD_HOOK_OPENING, SECTION_ID } from '../src/digest'
+import { SECTION_ID } from '../src/digest'
 import { GUARD_REASON } from '../src/guard'
 import { DATA_NOTE, NUDGE_LINE, PERMISSION_TOAST, RECALL_CLOSE, RECALL_OPEN, REMINDER_CLOSE, REMINDER_OPEN, UNREACHABLE_TOAST } from '../src/recall'
 
@@ -73,7 +73,6 @@ function world(on: On, answer: Answer = engine, fs: Files = {}) {
     cwd: CWD,
     compactSkip: false,
     baseSections: [] as { id: string; text: string; scope: 'shared' | 'session' }[],
-    startContext: undefined as string[] | undefined,
     http: (() => ({ status: 200, text: '{}' })) as (url: string) => { status: number; text: string },
     /** What $.mcp.connect answers for the bundled key: a server name, or undefined for not connected. */
     connectAs: 'plugin:lumberroom-memory:lumberroom' as string | undefined,
@@ -174,7 +173,6 @@ function world(on: On, answer: Answer = engine, fs: Files = {}) {
   })
   on('prompt.compose', () => ({ sections: w.baseSections }))
   on('prompt.section', (_$, e) => ({ text: e.text }))
-  on('classic.SessionStart', () => (w.startContext === undefined ? {} : { additionalContext: w.startContext }))
   on('session.compact', (_$, e) => {
     w.compacted.push({ instructions: e.instructions })
     return w.compactSkip ? { skip: 'vetoed' } : { messages: TURNS }
@@ -962,34 +960,6 @@ describe('tool.check', () => {
   )
 })
 
-describe('classic.SessionStart', () => {
-  test('cuts the old shell hook block and keeps other entries', async ($, on) => {
-    const w = world(on)
-    const old = `${OLD_HOOK_OPENING}\n\n- a fact\n- another fact\n_(showing 2 of 9; use memory_search for the rest)_`
-    w.startContext = [old, 'Project note: keep tests green.']
-    await $.session.start(START)
-    const out = await $.classic.SessionStart({ source: 'startup' })
-    expect(out.additionalContext).toEqual(['Project note: keep tests green.'])
-  })
-
-  test('passes text through when the opening line is absent', async ($, on) => {
-    const w = world(on)
-    w.startContext = ['Some other hook said hello.']
-    await $.session.start(START)
-    const out = await $.classic.SessionStart({ source: 'startup' })
-    expect(out.additionalContext).toEqual(['Some other hook said hello.'])
-  })
-
-  test('keeps the old block when the server is missing, so no context is lost', async ($, on) => {
-    const w = world(on, missing)
-    const old = `${OLD_HOOK_OPENING}\n\n- a fact`
-    w.startContext = [old]
-    await startRetrying($, w, 20)
-    const out = await $.classic.SessionStart({ source: 'startup' })
-    expect(out.additionalContext).toEqual([old])
-  })
-})
-
 describe('dedup lifetime', () => {
   const END = (reason: string) => ({ reason, sessionId: 's1', resume: { id: 's1' } }) as never
 
@@ -1042,35 +1012,8 @@ describe('dedup lifetime', () => {
   })
 })
 
-describe('classic.SessionStart before the digest is stored', () => {
-  const old = `${OLD_HOOK_OPENING}\n\n- a fact\n- another fact`
-
-  test('keeps the old block when the bootstrap failed with an outage', async ($, on) => {
-    const w = world(on, () => {
-      throw new Error('connect ECONNREFUSED')
-    })
-    w.startContext = [old]
-    await $.session.start(START)
-    const out = await $.classic.SessionStart({ source: 'startup' })
-    expect(out.additionalContext).toEqual([old])
-  })
-
-  test('keeps the old block when the hook runs before session.start has fetched the digest', async ($, on) => {
-    const w = world(on)
-    w.startContext = [old]
-    const out = await $.classic.SessionStart({ source: 'startup' })
-    expect(out.additionalContext).toEqual([old])
-  })
-
+describe('the digest cache', () => {
   const CACHED = { project: 'proj', text: '## Active project: proj\n- cached fact', memories: 3, fetchedAt: 1 }
-
-  test('cuts the old block before session.start when an earlier session cached the digest', async ($, on) => {
-    const w = world(on)
-    w.stored['digest-cache:proj'] = CACHED
-    w.startContext = [old]
-    const out = await $.classic.SessionStart({ source: 'startup' })
-    expect(out.additionalContext).toEqual([])
-  })
 
   test('a successful bootstrap caches the digest for the next session', async ($, on) => {
     const w = world(on)
@@ -1093,14 +1036,6 @@ describe('classic.SessionStart before the digest is stored', () => {
     w.stored['digest-cache:proj'] = CACHED
     await startRetrying($, w, 20)
     expect((await $.prompt.compose(COMPOSE)).sections.some((s) => s.id === SECTION_ID && s.text.includes('cached fact'))).toBe(true)
-  })
-
-  test('cuts the old block once the digest is stored', async ($, on) => {
-    const w = world(on)
-    w.startContext = [old]
-    await $.session.start(START)
-    const out = await $.classic.SessionStart({ source: 'startup' })
-    expect(out.additionalContext).toEqual([])
   })
 })
 
