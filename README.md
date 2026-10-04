@@ -15,7 +15,7 @@ More videos: [Lumberroom playlist](https://www.youtube.com/playlist?list=PLICXFD
 Built for Claude Code. The digest, the reminder, the status line and the memory guard are Claude
 Code hooks, so on claude.ai, the desktop app or Cowork only the bundled MCP server applies.
 
-**Status:** 0.2. The Claude Code mod API is early access (built and observed on 2.1.287) and may
+**Status:** The Claude Code mod API is early access (built and observed on 2.1.287) and may
 change between releases.
 
 ## What it does
