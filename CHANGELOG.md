@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `/lr-setup` allows the plugin's own lumberroom calls after you confirm, then loads the digest.
+  It adds the missing rules to your user `settings.json` and keeps every other key.
+
+### Changed
+
+- The permissions toast points at `/lr-setup` instead of a docs link.
+
 ## [0.5.0] - 2026-10-05
 
 ### Removed

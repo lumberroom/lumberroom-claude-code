@@ -76,6 +76,13 @@ function world(on: On, answer: Answer = engine, fs: Files = {}) {
     http: (() => ({ status: 200, text: '{}' })) as (url: string) => { status: number; text: string },
     /** What $.mcp.connect answers for the bundled key: a server name, or undefined for not connected. */
     connectAs: 'plugin:lumberroom-memory:lumberroom' as string | undefined,
+    /** What $.settings.read answers, merged. */
+    settings: {} as Record<string, unknown>,
+    /** Files the plugin wrote, by path. */
+    written: {} as Record<string, string>,
+    /** The label the AskUserQuestion dialog answers; undefined rejects, as with no one to ask. */
+    askAnswer: undefined as string | undefined,
+    asked: [] as string[],
   }
   const files = fs.files ?? {}
   const dirs = fs.dirs ?? {}
@@ -97,6 +104,11 @@ function world(on: On, answer: Answer = engine, fs: Files = {}) {
   on('session.messages', () => ({ value: w.messages }))
   on('fs.exists', (_$, e) => ({ value: e.path === `${w.cwd}/.git` || e.path in files || e.path in dirs }))
   on('fs.read', (_$, e) => (e.path in files ? { value: files[e.path] ?? '' } : { deny: `ENOENT ${e.path}` }))
+  on('fs.write', (_$, e) => {
+    w.written[e.path] = e.text
+    return { value: undefined }
+  })
+  on('settings.read', () => ({ value: w.settings }))
   on('fs.stat', (_$, e) => {
     const realPath = fs.real?.[e.path]
     return realPath === undefined ? { deny: `ENOENT ${e.path}` } : { value: { kind: 'file' as const, size: 0, mtimeMs: 0, isLink: true, realPath } }
@@ -179,7 +191,15 @@ function world(on: On, answer: Answer = engine, fs: Files = {}) {
   })
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('turn.complete', (_$, e) => ({ text: e.answer }))
-  on('tool.call', () => (w.toolText === undefined ? { result: 'ran' } : { result: 'ran', text: w.toolText }))
+  on('tool.call', (_$, e) => {
+    if (e.tool === 'AskUserQuestion') {
+      const question = (e as unknown as { questions: { question: string }[] }).questions[0]?.question ?? ''
+      w.asked.push(question)
+      if (w.askAnswer === undefined) return { deny: 'no one to ask' }
+      return { result: { questions: [], answers: { [question]: w.askAnswer } } }
+    }
+    return w.toolText === undefined ? { result: 'ran' } : { result: 'ran', text: w.toolText }
+  })
   on('tool.check', () => ({ decision: 'ask' as const }))
   return w
 }
@@ -692,7 +712,7 @@ describe('bootstrap', () => {
   test('registers the lr-import command', async ($, on) => {
     const w = world(on)
     await $.session.start(START)
-    expect(w.commands).toEqual(['lr-import'])
+    expect(w.commands).toEqual(['lr-import', 'lr-setup'])
   })
 
   test('a server that connects after a few not-connected answers stores the digest with no toast', { options: { recall: true } }, async ($, on) => {
@@ -1847,5 +1867,94 @@ describe('/lr-import all: plan, confirm, skip', () => {
     await run($, 'lr-import')
     expect(proposalsOf(w)).toEqual([[['Uses pnpm.', 'project:proj']]])
     expect(w.modelPrompts).toEqual([])
+  })
+})
+
+describe('/lr-setup', () => {
+  const SETTINGS = `${HOME}/.claude/settings.json`
+  const RULES = [
+    'mcp__plugin_lumberroom-memory_lumberroom__context_bootstrap',
+    'mcp__plugin_lumberroom-memory_lumberroom__memory_search',
+    'mcp__plugin_lumberroom-memory_lumberroom__memory_write',
+  ]
+  const refused = (tool: string, server?: string) => new Error(`lumberroom-memory: $.mcp.call(${server}, ${tool}) refused: The server-side auto mode classifier gave no verdict`)
+  /** Refuses every call until `allowed()` says the rules are in. */
+  const gated = (allowed: () => boolean): Answer => (tool, args, server) => {
+    if (!allowed()) throw refused(tool, server)
+    return engine(tool, args, server)
+  }
+
+  test('asks, merges the rules into user settings and loads the digest', async ($, on) => {
+    let w: ReturnType<typeof world> | undefined
+    w = world(on, gated(() => (w?.written[SETTINGS] ?? '').includes('context_bootstrap')), { files: { [SETTINGS]: '{"model":"opus","permissions":{"allow":["Bash(ls)"]}}' } })
+    await $.session.start(START)
+    expect(w.state['digest']).toBeUndefined()
+    w.askAnswer = 'Add them'
+    const out = (await run($, 'lr-setup')).text ?? ''
+    expect(w.asked[0]).toMatch(SETTINGS)
+    expect(JSON.parse(w.written[SETTINGS] ?? '{}')).toEqual({ model: 'opus', permissions: { allow: ['Bash(ls)', ...RULES] } })
+    expect(out).toMatch('The digest is loaded')
+    expect((w.state['digest'] as { text: string } | undefined)?.text).toMatch('prefers pnpm')
+    expect(w.invalidated).toContain('prompt.section')
+  })
+
+  test('changes nothing when the person cancels', async ($, on) => {
+    const w = world(on, gated(() => false), { files: { [SETTINGS]: '{}' } })
+    await $.session.start(START)
+    w.askAnswer = 'Cancel'
+    const out = (await run($, 'lr-setup')).text ?? ''
+    expect(w.written).toEqual({})
+    expect(out).toMatch('nothing changed')
+    expect(out).toMatch(RULES[0] ?? '')
+  })
+
+  test('with no one to ask, prints the rules and writes nothing', async ($, on) => {
+    const w = world(on, gated(() => false))
+    await $.session.start(START)
+    const out = (await run($, 'lr-setup')).text ?? ''
+    expect(w.written).toEqual({})
+    expect(out).toMatch('no one could be asked')
+  })
+
+  test('skips the dialog when a wildcard already allows the tools', async ($, on) => {
+    const w = world(on)
+    w.settings = { permissions: { allow: ['mcp__plugin_lumberroom-memory_lumberroom__*'] } }
+    await $.session.start(START)
+    const out = (await run($, 'lr-setup')).text ?? ''
+    expect(w.asked).toEqual([])
+    expect(w.written).toEqual({})
+    expect(out).toMatch('already in place')
+  })
+
+  test('leaves a settings file it cannot parse alone', async ($, on) => {
+    const w = world(on, gated(() => false), { files: { [SETTINGS]: '{ "model": "opus", }' } })
+    await $.session.start(START)
+    w.askAnswer = 'Add them'
+    const out = (await run($, 'lr-setup')).text ?? ''
+    expect(w.written).toEqual({})
+    expect(out).toMatch('not valid JSON')
+  })
+
+  test('stops at a deny rule, which an allow rule cannot override', async ($, on) => {
+    const w = world(on, gated(() => false))
+    w.settings = { permissions: { deny: ['mcp__plugin_lumberroom-memory_lumberroom__memory_write'] } }
+    await $.session.start(START)
+    w.askAnswer = 'Add them'
+    const out = (await run($, 'lr-setup')).text ?? ''
+    expect(w.asked).toEqual([])
+    expect(out).toMatch('deny rule')
+  })
+
+  test('names the rules for the server lumberroom runs as', async ($, on) => {
+    const w = world(on)
+    w.connectAs = 'claude.ai Lumberroom'
+    await $.session.start(START)
+    const out = (await run($, 'lr-setup', 'show')).text ?? ''
+    expect(out).toMatch('mcp__claude_ai_Lumberroom__context_bootstrap')
+    expect(w.written).toEqual({})
+  })
+
+  test('the permission toast points at /lr-setup', async () => {
+    expect(PERMISSION_TOAST).toMatch('/lr-setup')
   })
 })

@@ -29,6 +29,7 @@ import { cliConfigPath, resolveIngest, type IngestCredential } from '../src/cred
 import { findGitRoot, resolveProject, slugFromPath } from '../src/project'
 import type { Exists } from '../src/project'
 import { buildRecallBlock, buildReminderBlock, clipQuery, hitsFrom, isEligible, isPersonPrompt, nudgeDue, PERMISSION_TOAST, searchNamespaces, selectHits, toRecalled, UNREACHABLE_TOAST } from '../src/recall'
+import { ADD_LABEL, CANCEL_LABEL, manualText, mergeAllow, missingRules, permissionLists, setupRules, SETUP_USAGE } from '../src/setup'
 import { writeFact } from '../src/writes'
 import type { Conflict, Fact, WriteDeps } from '../src/writes'
 import type { LumberroomDigest } from '../types'
@@ -718,6 +719,68 @@ const runImport = async ($: Dollar, args: string): Promise<string> => {
 }
 
 
+/** How long /lr-setup keeps retrying context_bootstrap while Claude Code picks up the new rules. */
+const SETUP_RELOAD_MS = 3_000
+
+/** Fetches the digest after /lr-setup, retrying while the settings watcher catches up. */
+const loadDigestAfterSetup = async ($: Dollar): Promise<boolean> => {
+  const began = await $.clock.now()
+  while ((await bootstrap($)) !== 'ok') {
+    if ((await $.clock.now()) - began >= SETUP_RELOAD_MS) return false
+    await $.clock.sleep(BOOTSTRAP_RETRY_MS)
+  }
+  // A cached digest of the same project skips bootstrap's own invalidate.
+  $.ui.invalidate('prompt.section')
+  const section = estimateTokens(await sectionText($))
+  await addCost($, (c) => ({ ...c, section }))
+  return true
+}
+
+const runSetup = async ($: Dollar, rawArgs: string): Promise<string> => {
+  const args = rawArgs.trim()
+  if (args !== '' && args !== 'show') return SETUP_USAGE
+  const server = activeServer ?? (await serversToTry($))[0] ?? SERVER_CANDIDATES[0]
+  const rules = setupRules(server)
+  const configDir = ((await $.env.get('CLAUDE_CONFIG_DIR'))?.trim() || `${await homeDir($)}/.claude`).replace(/[\\/]+$/, '')
+  const path = `${configDir}/settings.json`
+  if (args === 'show') return `lr-setup: lumberroom runs as "${server}".\n${manualText(path, rules)}`
+
+  const merged = permissionLists(await $.settings.read())
+  const blocked = rules.filter((r) => missingRules([r], merged.deny).length === 0)
+  if (blocked.length > 0) return `lr-setup: a deny rule in your settings covers ${blocked.join(', ')}. An allow rule cannot override it; remove the deny rule in /permissions first.`
+
+  const missing = missingRules(rules, merged.allow)
+  if (missing.length > 0) {
+    let answer: string
+    try {
+      answer = await $.ui.ask(`Add ${missing.length} allow rule${missing.length === 1 ? '' : 's'} for lumberroom's own calls to ${path}?`, {
+        options: [ADD_LABEL, CANCEL_LABEL],
+        header: 'lr-setup',
+      })
+    } catch {
+      return `lr-setup: no one could be asked, so nothing changed.\n${manualText(path, missing)}`
+    }
+    if (answer !== ADD_LABEL) return `lr-setup: nothing changed.\n${manualText(path, missing)}`
+
+    let text = ''
+    if (await existsOn($)(path)) {
+      try {
+        const raw = await $.fs.read(path)
+        text = typeof raw === 'string' ? raw : ''
+      } catch (err) {
+        return `lr-setup: could not read ${path} (${messageOf(err)}), so nothing changed.\n${manualText(path, missing)}`
+      }
+    }
+    const result = mergeAllow(text, missing)
+    if (!result.ok) return `lr-setup: left ${path} alone because ${result.error}.\n${manualText(path, missing)}`
+    if (result.added.length > 0) await $.fs.write(path, result.text)
+  }
+
+  const added = missing.length === 0 ? 'The allow rules were already in place.' : `Added ${missing.join(', ')} to ${path}.`
+  if (await loadDigestAfterSetup($)) return `lr-setup: ${added} The digest is loaded and joins the system prompt from your next message.`
+  return `lr-setup: ${added} lumberroom has not answered yet. Start a new session; if the digest is still missing, check /mcp for "${server}".`
+}
+
 export const register: Register = (on, options) => {
   cfg = readConfig(options)
 
@@ -734,6 +797,7 @@ export const register: Register = (on, options) => {
       activeServer = undefined
       try {
         await $.command.register({ name: 'lr-import', description: "Send Claude Code's memory files to lumberroom's proposal queue", argumentHint: '[all | plan | confirm <n|folder|all> [namespace] | skip <n>]' })
+        await $.command.register({ name: 'lr-setup', description: "Allow the plugin's own lumberroom calls, then load the digest", argumentHint: '[show]' })
       } catch (err) {
         logFailure($, 'command.register', err)
       }
@@ -862,6 +926,15 @@ export const register: Register = (on, options) => {
     // compaction is not the main conversation's.
     if (e.trigger !== 'precompute' && e.agentId === undefined && res.skip === undefined) await resetDedup($)
     return res
+  })
+
+  on('command.run', { command: 'lr-setup' }, async ($, e) => {
+    try {
+      return { text: await runSetup($, e.args) }
+    } catch (err) {
+      logFailure($, 'command.run', err)
+      return { text: `lr-setup failed: ${messageOf(err)}` }
+    }
   })
 
   on('command.run', { command: 'lr-import' }, async ($, e) => {
