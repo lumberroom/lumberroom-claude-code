@@ -2,8 +2,9 @@
 // Code registers as `plugin:<plugin>:<name>` and suppresses when a server the person registered
 // points at the same URL, or a claude.ai connector does. $.mcp.connect on the bundled key answers
 // with whichever name the session runs the server under; the list below is the fallback when it
-// cannot answer. So `auto` tries the bundled one first and falls back to a registered
-// `lumberroom`: the same install works before and after the person removes their own entry.
+// cannot answer. So the plugin tries the bundled one first and falls back to a registered
+// `lumberroom`: the same install works before and after the person removes their own entry, and a
+// self-hosted engine registered as `lumberroom` works with no plugin option.
 
 import { OWN_PLUGIN } from './own'
 
@@ -12,9 +13,7 @@ export const BUNDLED_KEY = 'lumberroom'
 export const BUNDLED_SERVER = `plugin:${OWN_PLUGIN}:${BUNDLED_KEY}`
 export const REGISTERED_SERVER = 'lumberroom'
 
-export function serverCandidates(option: string): readonly string[] {
-  return option === 'auto' ? [BUNDLED_SERVER, REGISTERED_SERVER] : [option]
-}
+export const SERVER_CANDIDATES: readonly [string, ...string[]] = [BUNDLED_SERVER, REGISTERED_SERVER]
 
 /** The prefix of a server's tools as Claude Code spells it: `plugin:a:b` becomes `mcp__plugin_a_b__`. */
 export function toolPrefix(server: string): string {

@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Removed
+
+- The `server`, `mcpHost` and `baseUrl` options. Install asks for no host: `.mcp.json` connects to
+  `https://mcp.lumberroom.cloud/mcp`. For a self-hosted engine, register it as an MCP server named
+  `lumberroom`; the plugin falls back to it. The README's Self-hosted engine section has the command.
+
+### Changed
+
+- `/lr-import` uses the lumberroom CLI's login when `ingestToken` is empty, and posts to the engine
+  the CLI points at. Run `lumberroom login` and pick the Full profile, which carries `mayIngest`.
+- The README shows how to set or change `ingestToken`, which `/config` does not list.
+
 ## [0.4.0] - 2026-10-04
 
 ### Removed

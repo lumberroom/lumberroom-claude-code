@@ -22,24 +22,6 @@
   ],
   "types": "./types/index.d.ts",
   "userConfig": {
-    "server": {
-      "type": "string",
-      "title": "MCP server",
-      "description": "auto uses the server this plugin bundles, or a registered server named lumberroom when Claude Code suppresses the bundled one as a duplicate. Anything else is the MCP server's name as /mcp lists it.",
-      "default": "auto"
-    },
-    "mcpHost": {
-      "type": "string",
-      "title": "MCP host",
-      "description": "Host of the engine the bundled MCP server connects to, with a port if it needs one and without https://. The plugin connects to https://<host>/mcp. mcp.lumberroom.cloud by default; set your own engine's host to self-host. Restart Claude Code after a change.",
-      "default": "mcp.lumberroom.cloud"
-    },
-    "baseUrl": {
-      "type": "string",
-      "title": "Engine URL",
-      "description": "The engine's base URL for /lr-import. Empty takes https://<MCP host>.",
-      "default": ""
-    },
     "project": {
       "type": "string",
       "title": "Project",
@@ -135,7 +117,7 @@
     "ingestToken": {
       "type": "string",
       "title": "Ingest token",
-      "description": "A bearer token with mayIngest, for /lr-import only. Kept in secure storage.",
+      "description": "Optional. /lr-import uses the lumberroom CLI's login when this is empty. A bearer with mayIngest overrides it. Kept in secure storage.",
       "sensitive": true
     }
   }
