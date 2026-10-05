@@ -97,20 +97,21 @@ The tool names are fixed text in the code. The plugin calls no other tool. It al
 through Claude Code (`$.model.complete`, on `extractorModel`) for the extractor, for the judge that
 decides whether a new fact replaces an old one, and for the namespace guess in `/lr-import all`.
 
-**Network requests.** The plugin contacts two hosts, both set in your options:
+**Network requests.** The plugin contacts two endpoints:
 
-- **The MCP server**, at `https://<mcpHost>/mcp`, `https://mcp.lumberroom.cloud/mcp` by default.
-  Claude Code makes these connections; the plugin only asks for the tool calls above.
-- **`baseUrl`**, `https://<mcpHost>` by default, only when you run `/lr-import` or
-  `/lr-import confirm`. The plugin makes these requests itself with `$.http.fetch`, three kinds of
-  `POST` carrying your `ingestToken` as a bearer: `/admin/ingest/runs` opens an ingest run,
-  `/admin/ingest/proposals` sends the memory files as proposals in batches, and
-  `/admin/ingest/runs/<id>/close` closes the run. It refuses a `baseUrl` that is not https, except
-  for `localhost` and `127.0.0.1`.
+- **The MCP server**, at `https://mcp.lumberroom.cloud/mcp`, or the `lumberroom` server you
+  registered for a self-hosted engine. Claude Code makes these connections; the plugin only asks
+  for the tool calls above.
+- **The engine the lumberroom CLI points at**, only when you run `/lr-import` or
+  `/lr-import confirm`: `LUMBERROOM_URL`, else the `url` in the CLI's config file, else
+  `https://mcp.lumberroom.cloud`. The plugin makes these requests itself with `$.http.fetch`, three
+  kinds of `POST` carrying the credential described under [Commands](#commands) as a bearer:
+  `/admin/ingest/runs` opens an ingest run, `/admin/ingest/proposals` sends the memory files as
+  proposals in batches, and `/admin/ingest/runs/<id>/close` closes the run. It refuses an engine URL
+  that is not https, except for `localhost` and `127.0.0.1`.
 
-The address is an option because a self-hosted engine runs on its own host. The plugin fetches no
-code and no instructions: the engine's answers are the digest, search hits and ingest counts, and
-the plugin shows them to the model as data.
+The plugin fetches no code and no instructions: the engine's answers are the digest, search hits
+and ingest counts, and the plugin shows them to the model as data.
 
 ## What it reads, what it sends, and where
 
@@ -135,6 +136,9 @@ any other server.
 - Claude Code's memory files under `~/.claude/projects/*/memory/`, read and posted to the engine's
   proposal queue only when you run `/lr-import` or `/lr-import confirm`. `/lr-import all` lists the
   folders and posts nothing.
+- The lumberroom CLI's config file (`LUMBERROOM_CONFIG`, else `~/.config/lumberroom/config.json`),
+  read for its engine URL and bearer only when `/lr-import` or `/lr-import confirm` posts. The
+  plugin never writes to it.
 - For the memory guard, the path a file tool names and where its links resolve. The paths stay on
   your machine.
 
@@ -159,17 +163,24 @@ From the marketplace:
 /plugin install lumberroom-memory@lumberroom
 ```
 
-The plugin brings its own MCP server, connecting to `https://<mcpHost>/mcp`. Run `/mcp` once and sign in
-to `plugin:lumberroom-memory:lumberroom`. Its tools appear as
+The plugin brings its own MCP server, connecting to `https://mcp.lumberroom.cloud/mcp`. It asks for no
+settings on install. Run `/mcp` once and sign in to `plugin:lumberroom-memory:lumberroom`. Its tools appear as
 `mcp__plugin_lumberroom-memory_lumberroom__memory_search` and so on, so a permission rule or agent
 definition that names `mcp__lumberroom__*` needs the new names.
 
-For a self-hosted engine, set `mcpHost` to its host, with a port if it needs one
-(`claude plugin configure lumberroom-memory@lumberroom --values-stdin` with
-`{"mcpHost": "lr.example.com"}`, or `/config`), and restart Claude Code. The bundled server then
-connects to `https://lr.example.com/mcp`. An engine that accepts only static bearer tokens needs its
-own registered server instead: `claude mcp add --transport http lumberroom <url>/mcp --header
-"Authorization: Bearer <token>"`.
+### Self-hosted engine
+
+Register your engine as an MCP server named `lumberroom`, then restart Claude Code:
+
+```
+claude mcp add --scope user --transport http lumberroom https://lr.example.com/mcp
+```
+
+Add `--header "Authorization: Bearer <token>"` if your engine accepts only static bearer tokens.
+The plugin tries the bundled server first and falls back to `lumberroom`, so it needs no option.
+The bundled server still points at lumberroom.cloud and shows as needing sign-in; disable
+`plugin:lumberroom-memory:lumberroom` in `/mcp` to hide it. For `/lr-import`, point the lumberroom
+CLI at the same engine (`LUMBERROOM_URL=https://lr.example.com lumberroom login`).
 
 If you already registered a server at the same URL, or your claude.ai account has a connector for
 it, Claude Code keeps one copy and hides the others. The plugin asks which copy is live and talks
@@ -200,9 +211,6 @@ Set them in `/config`, or under `pluginConfigs["lumberroom-memory"].options` in
 
 | Option | Default | Range | Meaning |
 | --- | --- | --- | --- |
-| `server` | `auto` |  | `auto` uses the bundled server, or a registered `lumberroom` when Claude Code hides the bundled one; else the server's name as `/mcp` lists it |
-| `mcpHost` | `mcp.lumberroom.cloud` |  | host the bundled MCP server connects to, at `https://<mcpHost>/mcp`; restart after a change |
-| `baseUrl` | empty |  | engine URL for `/lr-import`; empty takes `https://<mcpHost>` |
 | `project` | `auto` |  | `auto` uses the git root's folder name; `none` sends none; else the slug |
 | `recall` | off |  | search with each prompt; costs input tokens on every later turn |
 | `recallExtraProjects` | empty |  | other project slugs to search with each prompt, separated by commas or whitespace. A bare slug applies everywhere; `project=slug1+slug2` applies only in that project, for example `lumberroom-cloud=lumberroom` for a fork that shares its engine's decisions. Claude Code reads plugin options from user, `--settings` or managed settings only, never project settings, so a per-project value goes inside the option |
@@ -216,7 +224,7 @@ Set them in `/config`, or under `pluginConfigs["lumberroom-memory"].options` in
 | `replaceBuiltinMemory` | on |  | drop built-in memory and guard its files |
 | `extractor` | `off` | `off`, `turn`, `session-end` | `turn` or `session-end` to write facts automatically |
 | `extractorModel` | `haiku` |  | model for the extractor |
-| `ingestToken` | unset |  | bearer with `mayIngest`, for `/lr-import`; kept in secure storage |
+| `ingestToken` | unset |  | optional bearer with `mayIngest` for `/lr-import`, ahead of the CLI's credential; kept in secure storage, so `/config` does not list it (see [Commands](#commands)) |
 
 Numeric options are rounded to whole numbers and clamped to the range; a non-numeric value falls back to the default. `recallMinSimilarity` is clamped but not rounded.
 
@@ -225,8 +233,7 @@ Numeric options are rounded to whole numbers and clamped to the range; a non-num
 An option edited in `~/.claude/settings.json` by hand takes effect after `/reload-plugins`; a change
 through `/config` reloads the plugin itself.
 
-- `/lr-import`: send this project's memory files to the proposal queue. Needs `ingestToken` and an
-  https `baseUrl` (http only for `localhost` and `127.0.0.1`). Each call waits 15 s, the closing
+- `/lr-import`: send this project's memory files to the proposal queue. Each call waits 15 s, the closing
   call 5 s, and the result line reports posted, new, reinforced, confirmed, refused and blocked
   counts. `user` and `feedback` memories always go to `user:me`.
 - `/lr-import all`: lists every folder under `~/.claude/projects` that has memory files and
@@ -239,9 +246,30 @@ through `/config` reloads the plugin itself.
   table again. Only these project and reference memories use the namespace; the plan needs no token,
   `confirm` does.
 
+`/lr-import` and `/lr-import confirm` take their credential from the first of these that is set:
+
+1. The `ingestToken` option.
+2. `LUMBERROOM_TOKEN` in Claude Code's environment.
+3. The `token` in the lumberroom CLI's config file.
+4. The CLI's OAuth login (`oauth.access_token` in the same file).
+
+So once you have run `lumberroom login` and picked the **Full** profile on the consent screen, the
+only profile that carries the `mayIngest` grant, `/lr-import` works with nothing set in the plugin.
+A Standard login answers HTTP 403; run `lumberroom login --reregister` and pick Full. When the CLI's
+access token has expired, `/lr-import` asks you to run `lumberroom whoami`, which refreshes it.
+
+`ingestToken` is a sensitive option, so Claude Code keeps it in secure storage and `/config` does not
+list it. Set or change it from a terminal:
+
+```
+echo '{"ingestToken":"<token>"}' | claude plugin configure lumberroom-memory@lumberroom --values-stdin
+```
+
+Send `{"ingestToken":""}` the same way to clear it and fall back to the CLI.
+
 ## Implemented versus verified
 
-Everything above is implemented. `npm run gate` passes with 509 tests, a unit-level result: it covers
+Everything above is implemented. `npm run gate` passes with 514 tests, a unit-level result: it covers
 the logic and the hooks `claude plugin test` can reach. A unit test does not show that a live session
 behaves the same way, so this section lists what a live Claude Code 2.1.287 session has shown.
 
@@ -266,7 +294,7 @@ piece. Toasts are dropped from the plan. Engine proposals P1 to P8 are in [docs/
 
 ```
 npm install          # TypeScript, for type-checking only
-npm run gate         # validates both manifests, tsc, claude plugin test (509 tests on 4 October 2026)
+npm run gate         # validates both manifests, tsc, claude plugin test (514 tests on 5 October 2026)
 ```
 
 Design and measurements: [docs/spec.md](docs/spec.md). Task order: [docs/plan.md](docs/plan.md).

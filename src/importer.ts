@@ -170,7 +170,7 @@ export async function toProposalFacts(files: ReadonlyArray<{ path: string; file:
 }
 
 const MISSING_GRANT =
-  'the ingest token lacks the mayIngest grant (HTTP 403). Issue a bearer with mayIngest and set it as the ingestToken option.'
+  'the credential lacks the mayIngest grant (HTTP 403). Run `lumberroom login --reregister` and pick the Full profile, or set the ingestToken option to a token with mayIngest.'
 
 function failure(status: number, text: string): string {
   return status === 403 ? MISSING_GRANT : `lumberroom ingest call failed (HTTP ${status}): ${text.slice(0, 200)}`

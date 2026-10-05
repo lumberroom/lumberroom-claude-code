@@ -208,7 +208,7 @@ const NOT_CONNECTED_MSG =
 const notConnected: Answer = () => {
   throw new Error(NOT_CONNECTED_MSG)
 }
-const NO_SERVER_TOAST = 'lumberroom-memory: no "plugin:lumberroom-memory:lumberroom" or "lumberroom" MCP server with memory tools is connected. Check /mcp, or the server option.'
+const NO_SERVER_TOAST = 'lumberroom-memory: no "plugin:lumberroom-memory:lumberroom" or "lumberroom" MCP server with memory tools is connected. Check /mcp.'
 
 type OriginKind = 'composer' | 'task-notification' | 'peer'
 const send = ($: Engine, text: string, kind: OriginKind = 'composer') => $.prompt.submit({ text, wait: false, origin: { kind } })
@@ -1403,7 +1403,7 @@ describe('/lr-import', () => {
     const w = world(on)
     await $.session.start(START)
     const out = await run($, 'lr-import')
-    expect(out.text).toMatch('Ingest token')
+    expect(out.text).toMatch('lumberroom login')
     expect(out.text).toMatch('mayIngest')
     expect(w.fetched).toEqual([])
   })
@@ -1473,13 +1473,45 @@ describe('/lr-import wiring', () => {
   }
   const file = (type: string, body: string) => `---\nname: n\ndescription: d\ntype: ${type}\n---\n${body}\n`
 
-  test('a plain-http engine URL sends nothing and says why', { options: { ingestToken: 'lr_test', baseUrl: 'http://lr.example' } }, async ($, on) => {
+  const CLI_CONFIG = `${HOME}/.config/lumberroom/config.json`
+
+  test('a plain-http engine URL sends nothing and says why', { options: { ingestToken: 'lr_test' } }, async ($, on) => {
     const dir = `${HOME}/.claude/projects/-work-proj/memory`
-    const w = world(on, engine, { dirs: { [dir]: ['a.md'] }, files: { [`${dir}/a.md`]: file('user', 'Prefers short answers.') } })
+    const w = world(on, engine, {
+      dirs: { [dir]: ['a.md'] },
+      files: { [`${dir}/a.md`]: file('user', 'Prefers short answers.'), [CLI_CONFIG]: JSON.stringify({ url: 'http://lr.example/mcp' }) },
+    })
     await $.session.start(START)
     const out = await run($, 'lr-import')
     expect(w.fetched).toEqual([])
     expect(out.text).toMatch('https')
+  })
+
+  test('without the option, posts to the CLI engine with its OAuth token', async ($, on) => {
+    const dir = `${HOME}/.claude/projects/-work-proj/memory`
+    const cli = { url: 'https://lr.example.com/mcp', oauth: { access_token: 'cli_access', expires_at: new Date(NOW + 3_600_000).toISOString() } }
+    const w = world(on, engine, {
+      dirs: { [dir]: ['a.md'] },
+      files: { [`${dir}/a.md`]: file('user', 'Prefers short answers.'), [CLI_CONFIG]: JSON.stringify(cli) },
+    })
+    w.http = OK
+    await $.session.start(START)
+    await run($, 'lr-import')
+    expect(w.fetched[0]?.url).toBe('https://lr.example.com/admin/ingest/runs')
+    expect(w.fetched[0]?.headers?.Authorization).toBe('Bearer cli_access')
+  })
+
+  test('an expired CLI login sends nothing and says how to refresh it', async ($, on) => {
+    const dir = `${HOME}/.claude/projects/-work-proj/memory`
+    const cli = { oauth: { access_token: 'cli_access', expires_at: new Date(NOW - 1000).toISOString() } }
+    const w = world(on, engine, {
+      dirs: { [dir]: ['a.md'] },
+      files: { [`${dir}/a.md`]: file('user', 'Prefers short answers.'), [CLI_CONFIG]: JSON.stringify(cli) },
+    })
+    await $.session.start(START)
+    const out = await run($, 'lr-import')
+    expect(w.fetched).toEqual([])
+    expect(out.text).toMatch('lumberroom whoami')
   })
 
   test('the result line reports confirmations', { options: { ingestToken: 'lr_test' } }, async ($, on) => {

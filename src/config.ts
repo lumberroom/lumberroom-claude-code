@@ -17,11 +17,6 @@ export interface RecallExtras {
 }
 
 export interface Config {
-  server: string
-  /** https://<mcpHost>/mcp, the same URL .mcp.json builds for the bundled server. */
-  mcpUrl: string
-  /** For /lr-import: the option, else https://<mcpHost>. */
-  baseUrl: string
   /** `auto`, `none`, or a slug. */
   project: string
   /** Off by default: each recall block stays in context for the rest of the session (spec 2.1). */
@@ -39,14 +34,11 @@ export interface Config {
   replaceBuiltinMemory: boolean
   extractor: ExtractorMode
   extractorModel: string
-  /** Absent when unset or blank. */
+  /** Absent when unset or blank. Without it /lr-import uses the lumberroom CLI's credential. */
   ingestToken?: string
 }
 
 export const DEFAULTS: Config = {
-  server: 'auto',
-  mcpUrl: 'https://mcp.lumberroom.cloud/mcp',
-  baseUrl: 'https://mcp.lumberroom.cloud',
   project: 'auto',
   recall: false,
   recallExtraProjects: { everywhere: [], byProject: {} },
@@ -75,8 +67,7 @@ export function extrasFor(extras: RecallExtras, currentSlug: string | undefined)
 
 /**
  * Options as `register` receives them -> Config. A value of the wrong type, or a number outside
- * the manifest's min and max, falls back to the default or is clamped. `baseUrl` loses any
- * trailing slash. Never throws.
+ * the manifest's min and max, falls back to the default or is clamped. Never throws.
  */
 export function readConfig(options: Readonly<Record<string, unknown>>): Config {
   const str = (v: unknown, d: string): string => (typeof v === 'string' && v.trim() !== '' ? v.trim() : d)
@@ -115,14 +106,8 @@ export function readConfig(options: Readonly<Record<string, unknown>>): Config {
   }
 
   const extractor = options.extractor
-  // .mcp.json pastes the raw option between https:// and /mcp, so read it the same way here.
-  const mcpHost = str(options.mcpHost, 'mcp.lumberroom.cloud')
-  const mcpUrl = `https://${mcpHost}/mcp`
   const token = typeof options.ingestToken === 'string' ? options.ingestToken.trim() : ''
   const config: Config = {
-    server: str(options.server, DEFAULTS.server),
-    mcpUrl,
-    baseUrl: str(options.baseUrl, `https://${mcpHost}`).replace(/\/+$/, ''),
     project: str(options.project, DEFAULTS.project),
     recall: bool(options.recall, DEFAULTS.recall),
     recallExtraProjects: extras(options.recallExtraProjects),

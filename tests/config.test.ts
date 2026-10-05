@@ -15,13 +15,11 @@ describe('readConfig', () => {
 
   test('values of the wrong type fall back to the default', async () => {
     const c = readConfig({
-      server: 5,
       recall: 'yes',
       recallLimit: '9',
       reviewInterval: Number.NaN,
       project: ['a'],
     })
-    expect(c.server).toBe(DEFAULTS.server)
     expect(c.recall).toBe(false)
     expect(c.recallLimit).toBe(6)
     expect(c.reviewInterval).toBe(8)
@@ -29,8 +27,7 @@ describe('readConfig', () => {
   })
 
   test('valid values pass through', async () => {
-    const c = readConfig({ server: 'lr', recall: false, recallLimit: 10, project: 'x', extractor: 'turn' })
-    expect(c.server).toBe('lr')
+    const c = readConfig({ recall: false, recallLimit: 10, project: 'x', extractor: 'turn' })
     expect(c.recall).toBe(false)
     expect(c.recallLimit).toBe(10)
     expect(c.project).toBe('x')
@@ -70,11 +67,6 @@ describe('readConfig', () => {
     expect(readConfig({ reviewInterval: 0 }).reviewInterval).toBe(0)
   })
 
-  test('baseUrl loses trailing slashes', async () => {
-    expect(readConfig({ baseUrl: 'https://x.test/' }).baseUrl).toBe('https://x.test')
-    expect(readConfig({ baseUrl: 'https://x.test///' }).baseUrl).toBe('https://x.test')
-  })
-
   test('a blank ingestToken is absent', async () => {
     expect(readConfig({ ingestToken: '   ' }).ingestToken).toBeUndefined()
     expect(readConfig({ ingestToken: '' }).ingestToken).toBeUndefined()
@@ -92,9 +84,7 @@ describe('readConfig', () => {
   })
 
   test('blank strings fall back to the default', async () => {
-    const c = readConfig({ server: ' ', baseUrl: '', project: '', extractorModel: ' ' })
-    expect(c.server).toBe('auto')
-    expect(c.baseUrl).toBe(DEFAULTS.baseUrl)
+    const c = readConfig({ project: '', extractorModel: ' ' })
     expect(c.project).toBe('auto')
     expect(c.extractorModel).toBe('haiku')
   })
@@ -191,12 +181,5 @@ describe('extrasFor', () => {
   test('a current slug named like an object property finds nothing', async () => {
     expect(extrasFor(config, 'constructor')).toEqual(['shared'])
     expect(extrasFor(config, 'toString')).toEqual(['shared'])
-  })
-  test('mcpUrl and baseUrl come from mcpHost, lumberroom.cloud by default', async () => {
-    expect(readConfig({}).mcpUrl).toBe('https://mcp.lumberroom.cloud/mcp')
-    expect(readConfig({}).baseUrl).toBe('https://mcp.lumberroom.cloud')
-    expect(readConfig({ mcpHost: 'lr.example.com:8443' }).mcpUrl).toBe('https://lr.example.com:8443/mcp')
-    expect(readConfig({ mcpHost: 'lr.example.com' }).baseUrl).toBe('https://lr.example.com')
-    expect(readConfig({ mcpHost: 'lr.example.com', baseUrl: 'https://admin.example.com/' }).baseUrl).toBe('https://admin.example.com')
   })
 })

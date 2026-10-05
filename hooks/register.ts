@@ -24,7 +24,8 @@ import { callTool, isOutage } from '../src/mcp'
 import { OWN_PLUGIN } from '../src/own'
 import { raceSleep } from '../src/race'
 import type { CallOutcome, McpDeps } from '../src/mcp'
-import { BUNDLED_KEY, serverCandidates } from '../src/server'
+import { BUNDLED_KEY, SERVER_CANDIDATES } from '../src/server'
+import { cliConfigPath, resolveIngest, type IngestCredential } from '../src/credential'
 import { findGitRoot, resolveProject, slugFromPath } from '../src/project'
 import type { Exists } from '../src/project'
 import { buildRecallBlock, buildReminderBlock, clipQuery, hitsFrom, isEligible, isPersonPrompt, nudgeDue, PERMISSION_TOAST, searchNamespaces, selectHits, toRecalled, UNREACHABLE_TOAST } from '../src/recall'
@@ -89,9 +90,9 @@ let toldNotConnected = false
 let toldDenied = false
 /** The candidate that last answered context_bootstrap; the other calls go to it. */
 let activeServer: string | undefined
-const serverName = (): string => activeServer ?? serverCandidates(cfg.server)[0] ?? cfg.server
+const serverName = (): string => activeServer ?? SERVER_CANDIDATES[0]
 /** Every name the plugin may call lumberroom under, for the token count. */
-const knownServers = (): string[] => [...new Set([...serverCandidates(cfg.server), ...triedServers])]
+const knownServers = (): string[] => [...new Set([...SERVER_CANDIDATES, ...triedServers])]
 /** Names serversToTry returned, counted before the first call answers. */
 let triedServers: readonly string[] = []
 
@@ -101,8 +102,7 @@ let triedServers: readonly string[] = []
  * with the same URL), and that name goes first.
  */
 const serversToTry = async ($: Dollar): Promise<readonly string[]> => {
-  const base = serverCandidates(cfg.server)
-  if (cfg.server !== 'auto') return base
+  const base = SERVER_CANDIDATES
   try {
     const raced = await raceSleep($.mcp.connect(BUNDLED_KEY), (ms) => $.clock.sleep(ms), cfg.bootstrapTimeoutMs)
     const answer = raced.timedOut ? undefined : raced.value
@@ -246,8 +246,8 @@ const noteNotConnectedPrompt = ($: Dollar): void => {
   if (notConnectedPrompts < 3 || toldNotConnected) return
   toldNotConnected = true
   recallStopped = true
-  const names = serverCandidates(cfg.server).map((n) => `"${n}"`).join(' or ')
-  $.ui.toast(`${PLUGIN}: no ${names} MCP server with memory tools is connected. Check /mcp, or the server option.`)
+  const names = SERVER_CANDIDATES.map((n) => `"${n}"`).join(' or ')
+  $.ui.toast(`${PLUGIN}: no ${names} MCP server with memory tools is connected. Check /mcp.`)
 }
 
 /** One context_bootstrap through the breaker. Stores the digest on success. */
@@ -480,7 +480,22 @@ const extractInBackground = ($: Dollar): void => {
 
 
 
-const importHint = 'Set the Ingest token option of the lumberroom-memory plugin to a token that has the mayIngest grant, then run /lr-import again.'
+const importHint =
+  'lr-import found no lumberroom credential. Run `lumberroom login` and pick the Full profile, which carries the mayIngest grant, then run /lr-import again. Or save a token that has mayIngest: echo \'{"ingestToken":"<token>"}\' | claude plugin configure lumberroom-memory@lumberroom --values-stdin'
+const expiredHint = 'lr-import: the lumberroom CLI login has expired. Run `lumberroom whoami` to refresh it, then run /lr-import again.'
+
+/** The engine URL and bearer for /lr-import: the ingestToken option, else what the lumberroom CLI holds. */
+const ingestCredential = async ($: Dollar, home: string): Promise<IngestCredential | string> => {
+  const resolved = resolveIngest({
+    optionToken: cfg.ingestToken,
+    envUrl: await $.env.get('LUMBERROOM_URL'),
+    envToken: await $.env.get('LUMBERROOM_TOKEN'),
+    cliConfig: home === '' ? '' : await readText($, cliConfigPath(await $.env.get('LUMBERROOM_CONFIG'), home)),
+    now: await $.clock.now(),
+  })
+  if (resolved.ok) return resolved.credential
+  return resolved.reason === 'expired' ? expiredHint : importHint
+}
 
 /**
  * Which folders under ~/.claude/projects belong to the current project: its root, cwd and git
@@ -522,7 +537,7 @@ const readMemoryFiles = async ($: Dollar, dir: string): Promise<FolderFiles> => 
 }
 
 /** One ingest run for the given groups. The proposal facts are built inside the run, once its id exists. */
-const postGroups = ($: Dollar, token: string, groups: { slug: string | null; files: FolderFiles }[], count: number) =>
+const postGroups = ($: Dollar, cred: IngestCredential, groups: { slug: string | null; files: FolderFiles }[], count: number) =>
   postProposals(
     {
       fetch: async (url, init) => {
@@ -531,8 +546,8 @@ const postGroups = ($: Dollar, token: string, groups: { slug: string | null; fil
       },
       sleep: (ms) => $.clock.sleep(ms),
     },
-    cfg.baseUrl,
-    token,
+    cred.baseUrl,
+    cred.token,
     async (runId) => (await Promise.all(groups.map((g) => toProposalFacts(g.files, g.slug, runId)))).flat(),
     count,
   )
@@ -602,16 +617,16 @@ const findEntry = (entries: readonly PlanEntry[], target: string): number => {
 }
 
 /** Posts one plan folder, with `slug` for its project and reference memories. */
-const postFolder = async ($: Dollar, token: string, home: string, entry: PlanEntry, slug: string | null): Promise<{ ok: boolean; line: string }> => {
+const postFolder = async ($: Dollar, cred: IngestCredential, home: string, entry: PlanEntry, slug: string | null): Promise<{ ok: boolean; line: string }> => {
   const files = await readMemoryFiles($, `${home}/.claude/projects/${entry.folder}/memory`)
   const where = `${entry.folder} -> ${namespaceLabel(slug)}`
   if (files.length === 0) return { ok: false, line: `${where}: no memory files left to send` }
-  const report = await postGroups($, token, [{ slug, files }], files.length)
+  const report = await postGroups($, cred, [{ slug, files }], files.length)
   if (report.error !== undefined) return { ok: false, line: `${where}: stopped: ${report.error}. ${describeReport(report)}` }
   return { ok: true, line: `${where}: ${describeReport(report)}` }
 }
 
-const runConfirm = async ($: Dollar, token: string, home: string, target: string, namespace: string | undefined): Promise<string> => {
+const runConfirm = async ($: Dollar, cred: IngestCredential, home: string, target: string, namespace: string | undefined): Promise<string> => {
   const entries = parsePlan(await $.store.get(PLAN_KEY))
   if (entries.length === 0) return NO_PLAN
   const save = (): Promise<void> => $.store.set(PLAN_KEY, entries)
@@ -621,7 +636,7 @@ const runConfirm = async ($: Dollar, token: string, home: string, target: string
     let stopped = false
     for (const entry of entries) {
       if (entry.status !== 'pending') continue
-      const result = await postFolder($, token, home, entry, entry.slug)
+      const result = await postFolder($, cred, home, entry, entry.slug)
       lines.push(result.line)
       if (!result.ok) {
         stopped = true
@@ -646,7 +661,7 @@ const runConfirm = async ($: Dollar, token: string, home: string, target: string
     if (!parsed.ok) return `lr-import: ${parsed.error}`
     slug = parsed.slug
   }
-  const result = await postFolder($, token, home, entry, slug)
+  const result = await postFolder($, cred, home, entry, slug)
   if (!result.ok) return `lr-import: ${result.line}`
   entry.status = 'done'
   await save()
@@ -656,13 +671,15 @@ const runConfirm = async ($: Dollar, token: string, home: string, target: string
 const runImport = async ($: Dollar, args: string): Promise<string> => {
   const cmd = parseImportArgs(args)
   if (cmd.kind === 'usage') return IMPORT_USAGE
-  const token = cfg.ingestToken
-  // Building, showing and skipping a plan make no network call, so they need no token.
-  if (token === undefined && (cmd.kind === 'current' || cmd.kind === 'confirm')) return importHint
-  const unsafe = checkBaseUrl(cfg.baseUrl)
-  if (unsafe !== null && (cmd.kind === 'current' || cmd.kind === 'confirm')) return `lr-import: ${unsafe}`
   const home = await homeDir($)
   if (home === '') return 'lr-import: the home directory is unknown, so the memory folders cannot be found.'
+  // Building, showing and skipping a plan make no network call, so they need no credential.
+  const posts = cmd.kind === 'current' || cmd.kind === 'confirm'
+  const found = posts ? await ingestCredential($, home) : undefined
+  if (typeof found === 'string') return found
+  const unsafe = found === undefined ? null : checkBaseUrl(found.baseUrl)
+  if (unsafe !== null) return `lr-import: ${unsafe}`
+  const cred = found as IngestCredential
 
   if (cmd.kind === 'build') {
     const entries = await buildPlan($, home)
@@ -683,7 +700,7 @@ const runImport = async ($: Dollar, args: string): Promise<string> => {
     await $.store.set(PLAN_KEY, entries)
     return `lr-import: skipped ${entry.folder}. /lr-import confirm ${cmd.target} still posts it if you change your mind.`
   }
-  if (cmd.kind === 'confirm') return runConfirm($, token as string, home, cmd.target, cmd.namespace)
+  if (cmd.kind === 'confirm') return runConfirm($, cred, home, cmd.target, cmd.namespace)
 
   const groups: { slug: string | null; files: FolderFiles }[] = []
   let count = 0
@@ -694,7 +711,7 @@ const runImport = async ($: Dollar, args: string): Promise<string> => {
   }
   if (count === 0) return 'lr-import: no memory files found to send.'
 
-  const report = await postGroups($, token as string, groups, count)
+  const report = await postGroups($, cred, groups, count)
   const counts = describeReport(report)
   if (report.error !== undefined) return `lr-import stopped: ${report.error}. ${counts}.`
   return `lr-import: ${counts}. They wait in the proposal queue for review.`

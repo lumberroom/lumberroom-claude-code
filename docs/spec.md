@@ -39,8 +39,8 @@ A Claude Code user who loads this plugin gets lumberroom as the session's only m
   engine's proposal queue.
 
 The plugin talks to the `lumberroom` MCP server the user already registered, through `$.mcp.call`,
-so it holds no credential for the MCP path. The one secret it can hold is the optional
-`ingestToken` for `/lr-import` (section 8).
+so it holds no credential for the MCP path. For `/lr-import` it reads the lumberroom CLI's
+credential, or the optional `ingestToken` (section 8).
 
 ## 2. Prototype results
 
@@ -169,8 +169,6 @@ anything that must survive one lives in `$.state` (session) or `$.store` (across
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `server` | string | `lumberroom` | MCP server name as `/mcp` lists it |
-| `baseUrl` | string | `https://mcp.lumberroom.cloud` | for `/lr-import` only today; `/admin/whoami` is planned for `/lr-asof` |
 | `project` | string | `auto` | `auto` walks to the git root; `none` sends no project; anything else is the slug |
 | `recall` | boolean | `false` | per-prompt recall; the reminder (section 9.2) does not depend on it |
 | `recallExtraProjects` | string | empty | other project slugs searched with each prompt, split on commas and whitespace. A bare `slug` applies in every project; `project=slug1+slug2` applies only when the current project is `project`. Both sides are slugged like `project` and deduplicated; malformed entries (`=x`, `x=`, `a=b=c`) are dropped; the current project's slug is dropped at use time |
@@ -184,7 +182,12 @@ anything that must survive one lives in `$.state` (session) or `$.store` (across
 | `replaceBuiltinMemory` | boolean | `true` | drop the `memory` section and guard the files |
 | `extractor` | string | `off` | `off`, `turn`, `session-end` |
 | `extractorModel` | string | `haiku` | model alias for the extractor |
-| `ingestToken` | string, sensitive | none | bearer with `mayIngest` for `/lr-import` |
+| `ingestToken` | string, sensitive | none | bearer with `mayIngest` for `/lr-import`, ahead of the CLI's credential |
+
+No option names a host. `.mcp.json` hardcodes `https://mcp.lumberroom.cloud/mcp`, and the plugin
+tries the bundled server, then a registered `lumberroom`, which is how a self-hosted engine plugs in
+(owner ruling, 5 October 2026: three host fields with blank defaults were one too many, and an unset
+`${user_config.*}` left the URL unsubstituted).
 
 ## 5. Bootstrap and the digest section
 
@@ -324,9 +327,13 @@ current slug, which for an explicit `project` setting is that string as given.
   memory file becomes one fact (the body), posted as the hermes importer does
   (`HP/importer.py:62-115`): `POST /admin/ingest/runs`, `POST /admin/ingest/proposals` in batches of
   100 with `speaker: "main_model"`, tags `["claude-code-import"]`, `source.entry_uuid` the content's
-  SHA-256, then `POST /admin/ingest/runs/{id}/close`. It uses `ingestToken` through `$.http.fetch`
-  (owner ruling, 2 October 2026). With no token, or on a 403, it says which grant or field is
-  missing and posts nothing. The proposal queue dedups on a fingerprint, so a second import
+  SHA-256, then `POST /admin/ingest/runs/{id}/close`, through `$.http.fetch` (owner ruling,
+  2 October 2026). The engine and bearer follow the CLI's own `resolve` order, with `ingestToken`
+  in front (owner ruling, 5 October 2026): bearer from `ingestToken`, `LUMBERROOM_TOKEN`, the CLI
+  config's `token`, then its `oauth.access_token` while `expires_at` is in the future; engine from
+  `LUMBERROOM_URL`, the config's `url`, then `https://mcp.lumberroom.cloud`, without `/mcp`. The
+  config is `LUMBERROOM_CONFIG` or `~/.config/lumberroom/config.json`. With no credential, an
+  expired login, or a 403, it says what to run and posts nothing. The proposal queue dedups on a fingerprint, so a second import
   reinforces instead of duplicating.
   - **Namespaces.** `user:me` for type `user` and `feedback`, in every folder; `project:<slug>` for
     `project` and `reference`; `global` for any other type, and for `project` and `reference` files
@@ -361,13 +368,13 @@ current slug, which for an explicit `project` setting is that string as given.
     failure, leaving the rest `pending`. `skip <n>` marks a row `skipped`; `confirm all` passes it
     over, and an explicit `confirm <n>` still posts it. `plan` shows the table again. Row numbers
     never change within a plan. A `done` row is refused a second time. `confirm` re-reads the
-    folder's files at that moment. Only `confirm` and plain `/lr-import` need `ingestToken` and the
+    folder's files at that moment. Only `confirm` and plain `/lr-import` need a credential and the
     https check; `all`, `plan` and `skip` make no network call.
   - **Folder names.** Claude Code 2.1.287 names the folder `replace(/[^a-zA-Z0-9]/g, "-")` of the
     absolute path. A name over 200 characters is cut and a hash appended, which the plugin cannot
     reproduce, so it lists `~/.claude/projects` and matches the first 200 characters.
   - **Bounds.** Every call races `$.clock.sleep(15000)`; the close races its own 5000 ms. A timeout
-    is reported like any failure and the close is still tried. `baseUrl` must be https, or http to
+    is reported like any failure and the close is still tried. The engine URL must be https, or http to
     `localhost` or `127.0.0.1`, or nothing is sent and the token never leaves. The result line
     reports `confirmations` (facts the store had already emitted) beside new, reinforced, refused
     and blocked.
