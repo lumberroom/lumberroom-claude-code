@@ -176,7 +176,7 @@ anything that must survive one lives in `$.state` (session) or `$.store` (across
 | `recallMaxChars` | number | 4000 | cap on the whole recall block: tags, note, heading, lines and nudge |
 | `recallMinSimilarity` | number | 0.6 (0 to 1) | hits with a numeric similarity below this are dropped; hits without one pass |
 | `recallTimeoutMs` | number | 2500 | per `memory_search` |
-| `bootstrapTimeoutMs` | number | 4000 | per `context_bootstrap` |
+| `bootstrapTimeoutMs` | number | 5000 | per `context_bootstrap` |
 | `digestMaxChars` | number | 8000 | cap on the system-prompt section |
 | `reviewInterval` | number | 8 | reminder every N prompts from the person; 0 turns it off. 8 stays: the line is 269 characters and the interval was not the owner's complaint, so a shorter one has no measurement behind it |
 | `replaceBuiltinMemory` | boolean | `true` | drop the `memory` section and guard the files |

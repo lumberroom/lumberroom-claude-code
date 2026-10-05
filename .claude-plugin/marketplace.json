@@ -12,7 +12,7 @@
       "name": "lumberroom-memory",
       "source": "./",
       "description": "lumberroom as Claude Code's memory: the digest in the system prompt, a periodic search-and-write reminder, optional per-prompt recall, built-in memory off.",
-      "version": "0.5.0",
+      "version": "0.5.1",
       "category": "memory"
     }
   ]

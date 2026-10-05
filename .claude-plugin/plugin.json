@@ -1,7 +1,7 @@
 {
   "name": "lumberroom-memory",
   "displayName": "lumberroom memory",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "lumberroom as Claude Code's memory: the digest in the system prompt, a periodic search-and-write reminder, optional per-prompt recall, built-in memory off.",
   "author": {
     "name": "the-cybersapien"
@@ -76,8 +76,8 @@
       "type": "number",
       "title": "Bootstrap timeout (ms)",
       "description": "How long session start waits for context_bootstrap.",
-      "default": 4000,
-      "min": 500,
+      "default": 5000,
+      "min": 5000,
       "max": 8000
     },
     "digestMaxChars": {

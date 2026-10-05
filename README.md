@@ -61,17 +61,18 @@ The plugin writes nothing on its own unless you turn on the extractor. When on, 
 
 Every hook lives in `hooks/register.ts`. None answers a permission check, changes a permission
 mode, or rewrites a settings, agent, command or file-write event. The plugin runs no shell command,
-spawns no process or agent, and calls no shell tool.
+spawns no process or agent, and calls no shell tool. The one file it writes is your user
+`settings.json`, through `/lr-setup`, after you confirm.
 
 | Hook | What it does |
 | --- | --- |
-| `session.start` | Calls `context_bootstrap` on the lumberroom server, caches the digest, registers `/lr-import` and draws the status line |
+| `session.start` | Calls `context_bootstrap` on the lumberroom server, caches the digest, registers `/lr-import` and `/lr-setup` and draws the status line |
 | `prompt.compose` | Adds the digest and the write rule to the system prompt as one section |
 | `prompt.section` (`memory`) | Removes Claude Code's built-in memory section when `replaceBuiltinMemory` is on |
 | `prompt.submit` | Adds the reminder every `reviewInterval` prompts and, with `recall` on, calls `memory_search` and attaches the hits |
 | `tool.call` | See below |
 | `turn.complete`, `session.end`, `session.compact` | Run the extractor when it is on: a model call through Claude Code, then `memory_search` and `memory_write` |
-| `command.run` (`lr-import`) | Answers `/lr-import`, the plugin's own command; no other command reaches this hook |
+| `command.run` (`lr-import`, `lr-setup`) | Answers `/lr-import` and `/lr-setup`, the plugin's own commands; no other command reaches this hook |
 
 **What `tool.call` does with the calls it sees.** It reads the tool name and the path argument. With
 `replaceBuiltinMemory` on, it refuses `Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `Grep`
@@ -139,6 +140,9 @@ any other server.
 - The lumberroom CLI's config file (`LUMBERROOM_CONFIG`, else `~/.config/lumberroom/config.json`),
   read for its engine URL and bearer only when `/lr-import` or `/lr-import confirm` posts. The
   plugin never writes to it.
+- Your merged settings' `permissions.allow` and `permissions.deny`, read by `/lr-setup` to see which
+  rules are missing. When you confirm, it adds the missing rules to `permissions.allow` in
+  `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`) and keeps every other key.
 - For the memory guard, the path a file tool names and where its links resolve. The paths stay on
   your machine.
 
@@ -146,7 +150,7 @@ any other server.
 tool, those calls go to the same engine under your permission rules.
 
 The plugin keeps a digest cache, a duplicate guard for writes and the `/lr-import` plan in Claude
-Code's plugin storage. It writes no files of its own. The hosted service's privacy policy is
+Code's plugin storage. The only file it writes is your user `settings.json`, when you confirm `/lr-setup`. The hosted service's privacy policy is
 https://lumberroom.cloud/privacy; a self-hosted engine keeps everything on your own server.
 
 ## Requirements
@@ -200,9 +204,10 @@ or, for development, link the folder into a session's mods folder
 (`~/.claude/dev-mods/<session>/lumberroom-memory`) and accept hot reloading when Claude Code asks.
 
 Claude Code runs the plugin's own calls to `context_bootstrap`, `memory_search` and `memory_write`
-through your permission rules, so allow those three tools once: [docs/permissions.md](docs/permissions.md)
-has the rules to add. Until you do, the session starts without the digest and the plugin shows a
-toast that links to the page.
+through your permission rules, so allow those three tools once: run `/lr-setup`, confirm, and the
+digest loads in the same session. [docs/permissions.md](docs/permissions.md) has the rules if you
+would rather add them by hand. Until you do, the session starts without the digest and the plugin
+shows a toast that points at `/lr-setup`.
 
 ## Options
 
@@ -218,7 +223,7 @@ Set them in `/config`, or under `pluginConfigs["lumberroom-memory"].options` in
 | `recallMaxChars` | 4000 | 500 to 16000 | cap on the whole recall block: tags, note, hits and write reminder |
 | `recallMinSimilarity` | 0.6 | 0 to 1 | drop hits below this similarity; hits with no similarity pass |
 | `recallTimeoutMs` | 2500 | 500 to 8000 | wait for `memory_search` |
-| `bootstrapTimeoutMs` | 4000 | 500 to 8000 | wait for `context_bootstrap` |
+| `bootstrapTimeoutMs` | 5000 | 5000 to 8000 | wait for `context_bootstrap` |
 | `digestMaxChars` | 8000 | 1000 to 30000 | cap on the digest section |
 | `reviewInterval` | 8 | 0 to 100 | search and write reminder every N prompts, recall on or off; 0 is off |
 | `replaceBuiltinMemory` | on |  | drop built-in memory and guard its files |
@@ -233,6 +238,11 @@ Numeric options are rounded to whole numbers and clamped to the range; a non-num
 An option edited in `~/.claude/settings.json` by hand takes effect after `/reload-plugins`; a change
 through `/config` reloads the plugin itself.
 
+- `/lr-setup`: allow the plugin's own `context_bootstrap`, `memory_search` and `memory_write` calls.
+  It names the rules for the server lumberroom runs under, asks before it changes anything, adds
+  the missing ones to `permissions.allow` in your user `settings.json`, then fetches the digest.
+  It leaves a file it cannot parse alone, and stops at a deny rule, which an allow rule cannot
+  override. `/lr-setup show` prints the rules and changes nothing.
 - `/lr-import`: send this project's memory files to the proposal queue. Each call waits 15 s, the closing
   call 5 s, and the result line reports posted, new, reinforced, confirmed, refused and blocked
   counts. `user` and `feedback` memories always go to `user:me`.

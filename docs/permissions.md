@@ -7,9 +7,17 @@ answers that check for you. Without a rule that allows them, the calls are refus
 starts with no digest. In auto mode the classifier refuses them outright, because no prompt of
 yours asked for a call made at session start.
 
-When that happens the plugin shows one toast a session pointing here.
+When that happens the plugin shows one toast a session pointing at `/lr-setup`.
 
-## Add the rules
+## Run /lr-setup
+
+`/lr-setup` works out which name lumberroom runs under, shows the rules it is missing, and asks
+before it changes anything. On **Add them** it appends them to `permissions.allow` in
+`~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`), keeps every other key, and
+fetches the digest in the same session. It leaves a file that is not plain JSON alone and prints
+the rules instead. `/lr-setup show` prints them without asking.
+
+## Add the rules by hand
 
 Add the tool names to `permissions.allow` in `~/.claude/settings.json`, or run `/permissions` and
 add them under Allow:

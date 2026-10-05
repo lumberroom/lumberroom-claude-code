@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.1] - 2026-10-05
+
+### Added
+
+- `/lr-setup` allows the plugin's own lumberroom calls after you confirm, then loads the digest.
+  It adds the missing rules to your user `settings.json` and keeps every other key.
+
+### Changed
+
+- The permissions toast points at `/lr-setup` instead of a docs link.
+- `bootstrapTimeoutMs` defaults to 5000 ms and accepts no less, so a slow MCP connection still loads the digest.
+
 ## [0.5.0] - 2026-10-05
 
 ### Removed
