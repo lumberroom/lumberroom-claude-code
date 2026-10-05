@@ -76,8 +76,8 @@
       "type": "number",
       "title": "Bootstrap timeout (ms)",
       "description": "How long session start waits for context_bootstrap.",
-      "default": 4000,
-      "min": 500,
+      "default": 5000,
+      "min": 5000,
       "max": 8000
     },
     "digestMaxChars": {

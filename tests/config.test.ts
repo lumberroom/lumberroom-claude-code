@@ -46,7 +46,7 @@ describe('readConfig', () => {
       bootstrapTimeoutMs: 1, digestMaxChars: 1, reviewInterval: -4,
     })
     expect([lo.recallLimit, lo.recallMaxChars, lo.recallTimeoutMs, lo.bootstrapTimeoutMs, lo.digestMaxChars, lo.reviewInterval])
-      .toEqual([1, 500, 500, 500, 1000, 0])
+      .toEqual([1, 500, 500, 5000, 1000, 0])
   })
 
   test('recallMinSimilarity defaults to 0.6 and keeps fractions', async () => {

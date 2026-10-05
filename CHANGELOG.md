@@ -10,6 +10,7 @@
 ### Changed
 
 - The permissions toast points at `/lr-setup` instead of a docs link.
+- `bootstrapTimeoutMs` defaults to 5000 ms and accepts no less, so a slow MCP connection still loads the digest.
 
 ## [0.5.0] - 2026-10-05
 

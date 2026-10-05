@@ -223,7 +223,7 @@ Set them in `/config`, or under `pluginConfigs["lumberroom-memory"].options` in
 | `recallMaxChars` | 4000 | 500 to 16000 | cap on the whole recall block: tags, note, hits and write reminder |
 | `recallMinSimilarity` | 0.6 | 0 to 1 | drop hits below this similarity; hits with no similarity pass |
 | `recallTimeoutMs` | 2500 | 500 to 8000 | wait for `memory_search` |
-| `bootstrapTimeoutMs` | 4000 | 500 to 8000 | wait for `context_bootstrap` |
+| `bootstrapTimeoutMs` | 5000 | 5000 to 8000 | wait for `context_bootstrap` |
 | `digestMaxChars` | 8000 | 1000 to 30000 | cap on the digest section |
 | `reviewInterval` | 8 | 0 to 100 | search and write reminder every N prompts, recall on or off; 0 is off |
 | `replaceBuiltinMemory` | on |  | drop built-in memory and guard its files |

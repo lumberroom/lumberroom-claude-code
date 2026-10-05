@@ -737,9 +737,9 @@ describe('bootstrap', () => {
     const atStart = w.calls.length
 
     expect(atStart).toBeGreaterThan(2)
-    // 4000 ms of waiting in 500 ms steps: the loop cannot run on past the budget.
-    // Two candidates per attempt.
-    expect(atStart).toBeLessThanOrEqual(20)
+    // 5000 ms of waiting in 500 ms steps, eleven attempts at most: the loop cannot run on past the
+    // budget. Two candidates per attempt.
+    expect(atStart).toBeLessThanOrEqual(22)
     expect(w.toasts).toEqual([])
 
     await send($, 'where is the config?')
@@ -753,7 +753,7 @@ describe('bootstrap', () => {
     const w = world(on, hang)
     const pending = $.session.start(START)
     await w.clock.settle()
-    await w.clock.advance(4500)
+    await w.clock.advance(5500)
     await pending
 
     expect(w.calls.length).toBe(1)
