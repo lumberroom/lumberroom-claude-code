@@ -53,6 +53,9 @@ change between releases.
   read and write rules. In Claude Code the digest section already holds them; in Cowork, where only
   the MCP server and the skill load, the skill is what tells the model to bootstrap, search and
   write. The MCP server's own tool descriptions say what each tool does and give no orders.
+- **`/lr-review` works the review queue.** `skills/lr-review` settles dreaming proposals,
+  conflicts and duplicates from the memories alone and asks you only about contradictions no date
+  can order, in one list at the end.
 
 The plugin writes nothing on its own unless you turn on the extractor. When on, the extractor calls
 `memory_write` directly. Otherwise the model writes when it calls `memory_write`.

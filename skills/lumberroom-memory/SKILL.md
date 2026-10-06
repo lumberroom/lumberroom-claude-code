@@ -41,7 +41,7 @@ id. A conflict that only sounds similar needs nothing.
 ## Leave to the user
 
 - `review_queue` and `review_decide` run only when the user asks you to review or tidy their memory.
-  Conflict and stale items take the user's verdict every time.
+  That request hands the verdicts to you: follow the `lr-review` skill (`/lr-review`).
 - `memory_forget` deletes permanently. Use it only for a memory the user told you to remove, and run
   it with `dry_run: true` first unless they named that exact memory. For a fact that changed, use
   `memory_write` with `supersedes`, which keeps the history.

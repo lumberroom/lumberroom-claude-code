@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `/lr-review` works the review queue: dreaming proposals, conflicts and duplicates.
+
 ## [0.5.1] - 2026-10-05
 
 ### Added
