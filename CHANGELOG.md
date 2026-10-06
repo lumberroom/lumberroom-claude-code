@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `lr-review` works undated facts: it fills a start date the fact's own text names, through `review_queue` source `undated` and the `fill_date` verdict. Needs a server with the `undated` source.
+
 ## [0.5.2] - 2026-10-06
 
 ### Added
