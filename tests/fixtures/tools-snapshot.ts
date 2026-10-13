@@ -7,9 +7,25 @@ export const SNAPSHOT = {
       ],
       "required": []
     },
+    "alias_set": {
+      "properties": [
+        "alias",
+        "canonical",
+        "namespace",
+        "origin",
+        "since",
+        "until"
+      ],
+      "required": [
+        "alias",
+        "canonical",
+        "namespace"
+      ]
+    },
     "context_bootstrap": {
       "properties": [
-        "project"
+        "project",
+        "rows"
       ],
       "required": []
     },
@@ -24,9 +40,20 @@ export const SNAPSHOT = {
         "reason"
       ]
     },
+    "memory_history": {
+      "properties": [
+        "detail",
+        "id",
+        "namespace"
+      ],
+      "required": [
+        "id"
+      ]
+    },
     "memory_search": {
       "properties": [
         "as_of",
+        "detail",
         "include_superseded",
         "limit",
         "namespaces",
@@ -62,6 +89,32 @@ export const SNAPSHOT = {
       "required": [
         "key",
         "kind"
+      ]
+    },
+    "registry_history": {
+      "properties": [
+        "key",
+        "kind",
+        "limit",
+        "namespace"
+      ],
+      "required": [
+        "key",
+        "kind"
+      ]
+    },
+    "registry_set": {
+      "properties": [
+        "key",
+        "kind",
+        "namespace",
+        "value"
+      ],
+      "required": [
+        "key",
+        "kind",
+        "namespace",
+        "value"
       ]
     },
     "review_decide": {
