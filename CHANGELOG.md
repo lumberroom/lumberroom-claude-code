@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-10-13
+
+### Changed
+
+- `lr-review` follows the engine's queue paging. A read returns up to 50 items per source, so it works one source at a time, narrows `source` and pages with `offset` inside it, and reads every page of a source before it splits the source across workers.
+- `lr-review` keeps the `----- data` marker lines out of merged text, which the server refuses with `content_carries_fence`.
+
 ## [0.5.3] - 2026-10-06
 
 ### Changed
