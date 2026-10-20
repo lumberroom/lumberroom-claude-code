@@ -25,6 +25,7 @@ export const SNAPSHOT = {
     "context_bootstrap": {
       "properties": [
         "project",
+        "query",
         "rows"
       ],
       "required": []

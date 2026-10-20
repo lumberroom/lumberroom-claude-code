@@ -28,6 +28,11 @@ change between releases.
   the plugin leaves its own copy of the rule out of the section. The check reads
   `~/.claude/CLAUDE.md` and `<git root>/CLAUDE.md` (the working directory when there is no git root)
   for a `# Durable memory` heading followed by `memory_write`.
+- **The digest follows the first request.** The conversation's first prompt of 12 characters or
+  more goes to `context_bootstrap` as `query`, once, recall on or off. An engine with that argument
+  answers with the facts related to the request and a profile ordered by relevance, and the section
+  redraws. The system prompt then changes once, after that prompt. A timeout, an error or an engine
+  without `query` keeps the session-start digest. `digestQuery: false` turns it off.
 - **A reminder every `reviewInterval` prompts (8 by default).** The plugin adds one line
   that tells the model to call `memory_search` before it answers from assumption and `memory_write`
   after the exchange settles something. It works with recall on or off. Slash commands do not count.
@@ -72,7 +77,7 @@ spawns no process or agent, and calls no shell tool. The one file it writes is y
 | `session.start` | Calls `context_bootstrap` on the lumberroom server, caches the digest, registers `/lr-import` and `/lr-setup` and draws the status line |
 | `prompt.compose` | Adds the digest and the write rule to the system prompt as one section |
 | `prompt.section` (`memory`) | Removes Claude Code's built-in memory section when `replaceBuiltinMemory` is on |
-| `prompt.submit` | Adds the reminder every `reviewInterval` prompts and, with `recall` on, calls `memory_search` and attaches the hits |
+| `prompt.submit` | Adds the reminder every `reviewInterval` prompts; on the conversation's first eligible prompt, refetches the digest with that prompt as `query`; with `recall` on, calls `memory_search` and attaches the hits |
 | `tool.call` | See below |
 | `turn.complete`, `session.end`, `session.compact` | Run the extractor when it is on: a model call through Claude Code, then `memory_search` and `memory_write` |
 | `command.run` (`lr-import`, `lr-setup`) | Answers `/lr-import` and `/lr-setup`, the plugin's own commands; no other command reaches this hook |
@@ -93,7 +98,7 @@ permission rules:
 
 | Tool | When |
 | --- | --- |
-| `context_bootstrap` | At session start, retried for up to `bootstrapTimeoutMs` while the server connects; on later prompts until one answers, if session start got none |
+| `context_bootstrap` | At session start, retried for up to `bootstrapTimeoutMs` while the server connects; on later prompts until one answers, if session start got none; once more on the conversation's first prompt of 12 characters or more, with that prompt as `query`, within `recallTimeoutMs`, unless `digestQuery` is off |
 | `memory_search` | With each prompt from you when `recall` is on; with the extractor on, once before each extracted fact is written, to find the row it may replace |
 | `memory_write` | With the extractor on, once for each fact it extracted. Off by default |
 
@@ -126,12 +131,15 @@ any other server.
 
 - **Your prompt text**, clipped, with the project slug, in a `memory_search` call. Only when
   `recall` is on.
+- **The conversation's first eligible prompt**, up to 1,000 characters, with the project slug, in
+  one `context_bootstrap` call, recall on or off. Once a conversation; `digestQuery: false` stops
+  it.
 - **The conversation's messages**, when the extractor is on. A model call through Claude Code reads
   the turns since the last extraction and pulls out facts; that call runs on your Claude account,
   with no third party involved. The facts, not the transcript, go to the engine with `memory_write`,
   each preceded by a `memory_search` on the fact's text.
 - **At session start**, the project slug (the git root's folder name) in `context_bootstrap`. No
-  conversation text goes with it.
+  conversation text goes with it until the first eligible prompt, above.
 
 **From your machine:**
 
@@ -221,6 +229,7 @@ Set them in `/config`, or under `pluginConfigs["lumberroom-memory"].options` in
 | --- | --- | --- | --- |
 | `project` | `auto` |  | `auto` uses the git root's folder name; `none` sends none; else the slug |
 | `recall` | off |  | search with each prompt; costs input tokens on every later turn |
+| `digestQuery` | on |  | send the conversation's first prompt of 12 characters or more to `context_bootstrap` as `query`, so the digest adds the facts related to it; the system prompt changes once, after that prompt |
 | `recallExtraProjects` | empty |  | other project slugs to search with each prompt, separated by commas or whitespace. A bare slug applies everywhere; `project=slug1+slug2` applies only in that project, for example `lumberroom-cloud=lumberroom` for a fork that shares its engine's decisions. Claude Code reads plugin options from user, `--settings` or managed settings only, never project settings, so a per-project value goes inside the option |
 | `recallLimit` | 6 | 1 to 20 | hits asked for |
 | `recallMaxChars` | 4000 | 500 to 16000 | cap on the whole recall block: tags, note, hits and write reminder |

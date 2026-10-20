@@ -34,6 +34,12 @@
       "description": "Search lumberroom with each prompt and attach new hits for the model. Off by default: each block stays in context for the rest of the session and costs input tokens on every later turn, and weak matches fill the context.",
       "default": false
     },
+    "digestQuery": {
+      "type": "boolean",
+      "title": "Digest follows the first prompt",
+      "description": "Send the session's first prompt of 12 characters or more to context_bootstrap as its query, so the digest adds the facts related to it. The system prompt changes once, after that prompt.",
+      "default": true
+    },
     "recallExtraProjects": {
       "type": "string",
       "title": "Extra recall projects",

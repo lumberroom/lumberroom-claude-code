@@ -171,6 +171,7 @@ anything that must survive one lives in `$.state` (session) or `$.store` (across
 | --- | --- | --- | --- |
 | `project` | string | `auto` | `auto` walks to the git root; `none` sends no project; anything else is the slug |
 | `recall` | boolean | `false` | per-prompt recall; the reminder (section 9.2) does not depend on it |
+| `digestQuery` | boolean | `true` | send the conversation's first eligible prompt to `context_bootstrap` as `query`, once (section 5, step 5) |
 | `recallExtraProjects` | string | empty | other project slugs searched with each prompt, split on commas and whitespace. A bare `slug` applies in every project; `project=slug1+slug2` applies only when the current project is `project`. Both sides are slugged like `project` and deduplicated; malformed entries (`=x`, `x=`, `a=b=c`) are dropped; the current project's slug is dropped at use time |
 | `recallLimit` | number | 6 (1 to 20) | `memory_search` limit |
 | `recallMaxChars` | number | 4000 | cap on the whole recall block: tags, note, heading, lines and nudge |
@@ -207,7 +208,26 @@ tries the bundled server, then a registered `lumberroom`, which is how a self-ho
    `clear`) and starts none, yet the process and its state go on.
 4. A stored digest calls `$.ui.invalidate("prompt.section")` on the first digest after none and on a
    project change, because the engine caches the section and one rendered before the digest arrived
-   holds none. Other refreshes leave the cache alone, so the cached prefix is not spent every turn.
+   holds none. The first-prompt refresh in step 5 is the one other invalidate. Other refreshes leave
+   the cache alone, so the cached prefix is not spent every turn.
+5. The first prompt that passes `isEligible` (the person's, not a slash command, 12 or more
+   characters) refetches the digest once a conversation, with `digestQuery` on, `recall` on or off.
+   `prompt.submit` claims the query in `$.state` (`promptDigest`) before any call goes out, then
+   calls `context_bootstrap {project, query}` within `recallTimeoutMs` on a timer that does not hold the turn.
+   When the text differs from the held digest for the same project, it replaces the held digest and
+   invalidates the section. When no digest is held yet, the late-server fetch in step 1 carries the
+   query instead, so a late server costs one call; if that fetch also fails, the claim is released
+   for the next eligible prompt. A timeout, a tool error, or the same text back (an engine without
+   `query` ignores it) keeps the session-start digest, with no retry. The refetch never feeds the
+   breaker: the session-start digest is held, so a slow refetch is no outage, and recording a
+   failure would toast `UNREACHABLE_TOAST` beside a search that answered. The queried digest never replaces the `$.store` fallback, so
+   the next session's fallback stays topic-neutral. `session.start` and `/clear` release the claim.
+   `REFINE_BLOCKS_TURN` is false, so the refetch runs on a timer and the turn goes out at once.
+   Costs: the section text changes once a conversation, which spends the cached system-prompt prefix
+   once, and the redraw lands for turn 2, so turn 1 answers from the session-start digest. Setting
+   `REFINE_BLOCKS_TURN` to true makes the first eligible prompt wait up to `recallTimeoutMs` (2,500
+   ms by default) for the refetch, recall off included, and pays only if turn 1 reads a section
+   invalidated inside `prompt.submit`. Nobody has observed that yet (section 14).
 
 **The old pieces** (owner ruling, 2 October 2026: suppress, do not edit global config):
 

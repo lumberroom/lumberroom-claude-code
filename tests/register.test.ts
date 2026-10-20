@@ -1082,7 +1082,11 @@ describe('server choice', () => {
     const w = world(on)
     await $.session.start(START)
     await send($, 'how do I build this project?')
-    expect(w.calls.map((c) => c.server)).toEqual(['plugin:lumberroom-memory:lumberroom', 'plugin:lumberroom-memory:lumberroom'])
+    // The digest refetch runs on a timer after the turn goes out.
+    await w.clock.advance(0)
+    await w.clock.settle()
+    // The bootstrap, then the first prompt's search and its digest refetch.
+    expect(w.calls.map((c) => c.server)).toEqual(['plugin:lumberroom-memory:lumberroom', 'plugin:lumberroom-memory:lumberroom', 'plugin:lumberroom-memory:lumberroom'])
   })
 
   test('auto follows the name $.mcp.connect answers, such as a claude.ai connector running the same server', { options: { recall: true } }, async ($, on) => {
@@ -1090,7 +1094,10 @@ describe('server choice', () => {
     w.connectAs = 'claude.ai Lumberroom'
     await $.session.start(START)
     await send($, 'how do I build this project?')
-    expect(w.calls.map((c) => c.server)).toEqual(['claude.ai Lumberroom', 'claude.ai Lumberroom'])
+    // The digest refetch runs on a timer after the turn goes out.
+    await w.clock.advance(0)
+    await w.clock.settle()
+    expect(w.calls.map((c) => c.server)).toEqual(['claude.ai Lumberroom', 'claude.ai Lumberroom', 'claude.ai Lumberroom'])
   })
 
   test('auto falls back to a registered lumberroom when the bundled server is suppressed', { options: { recall: true } }, async ($, on) => {
@@ -1101,10 +1108,214 @@ describe('server choice', () => {
     w.connectAs = undefined
     await $.session.start(START)
     await send($, 'how do I build this project?')
-    expect(w.calls.map((c) => c.server)).toEqual(['plugin:lumberroom-memory:lumberroom', 'lumberroom', 'lumberroom'])
+    // The digest refetch runs on a timer after the turn goes out.
+    await w.clock.advance(0)
+    await w.clock.settle()
+    expect(w.calls.map((c) => c.server)).toEqual(['plugin:lumberroom-memory:lumberroom', 'lumberroom', 'lumberroom', 'lumberroom'])
     expect((w.submitted[0]?.context ?? [])[0]).toMatch('Build with pnpm')
   })
 
+})
+
+describe('first-prompt digest', () => {
+  const ASKED = 'how do we rotate the backup keys?'
+  const QUERIED = '## Active project: proj\n- prefers pnpm\n### Related to this request\n- rotate the backup keys monthly'
+  /** The engine with query support: a queried digest carries a related section. */
+  const queried: Answer = (tool, args) =>
+    tool === 'context_bootstrap' && typeof args.query === 'string' ? json({ text: QUERIED, counts: { memories: 3 } }) : engine(tool, args)
+  const boots = <T extends { tool: string }>(w: { calls: T[] }) => w.calls.filter((c) => c.tool === 'context_bootstrap')
+  const sectionHas = async ($: Engine, text: string) => (await $.prompt.compose(COMPOSE)).sections.some((s) => s.id === SECTION_ID && s.text.includes(text))
+  const END_CLEAR = { reason: 'clear', sessionId: 's1', resume: { id: 's1' } } as never
+  /** Sends a prompt, then lets the refetch the plugin queued on a timer run to its end. */
+  const sendThen = async ($: Engine, w: { clock: { settle: () => Promise<void>; advance: (ms: number) => Promise<void> } }, text: string) => {
+    await send($, text)
+    await w.clock.advance(0)
+    await w.clock.settle()
+  }
+
+  test('the first eligible prompt refetches the digest with its text as the query and redraws the section', async ($, on) => {
+    const w = world(on, queried)
+    await $.session.start(START)
+    const before = w.invalidated.length
+
+    await sendThen($, w, ASKED)
+
+    expect(boots(w).length).toBe(2)
+    expect(boots(w)[1]?.args).toEqual({ project: 'proj', query: ASKED })
+    expect(w.invalidated.slice(before)).toEqual(['prompt.section'])
+    expect(await sectionHas($, 'rotate the backup keys monthly')).toBe(true)
+    expect(w.state.promptDigest).toBe(true)
+  })
+
+  test('with recall off the first eligible prompt still refetches the digest', { options: { recall: false } }, async ($, on) => {
+    const w = world(on, queried)
+    await $.session.start(START)
+    await sendThen($, w, ASKED)
+    expect(boots(w).length).toBe(2)
+    expect(searches(w)).toEqual([])
+  })
+
+  test('a second prompt makes no second context_bootstrap call', async ($, on) => {
+    const w = world(on, queried)
+    await $.session.start(START)
+    await sendThen($, w, ASKED)
+    await sendThen($, w, 'and where do the logs go?')
+    expect(boots(w).length).toBe(2)
+  })
+
+  test('a short or slash-command first prompt leaves the refetch for the next eligible prompt', async ($, on) => {
+    const w = world(on, queried)
+    await $.session.start(START)
+    await sendThen($, w, 'hi')
+    await sendThen($, w, '/help')
+    expect(boots(w).length).toBe(1)
+
+    await sendThen($, w, ASKED)
+    expect(boots(w).length).toBe(2)
+    expect(boots(w)[1]?.args.query).toBe(ASKED)
+  })
+
+  test('a refetch past recallTimeoutMs keeps the session-start digest, is not retried, and raises no outage', async ($, on) => {
+    const hang: Answer = (tool, args) =>
+      tool === 'context_bootstrap' && typeof args.query === 'string' ? new Promise<McpToolResult>(() => {}) : engine(tool, args)
+    const w = world(on, hang)
+    await $.session.start(START)
+
+    const pending = send($, ASKED)
+    await w.clock.settle()
+    await w.clock.advance(2500)
+    await pending
+    await sendThen($, w, 'and where do the logs go?')
+
+    expect(boots(w).length).toBe(2)
+    expect(await sectionHas($, 'prefers pnpm')).toBe(true)
+    // The session-start digest is held and the prompt's own search answered, so nothing is down.
+    expect(w.toasts).toEqual([])
+    expect(w.state['breaker']).toBeUndefined()
+  })
+
+  test('the first eligible prompt goes out before a slow refetch answers', async ($, on) => {
+    const hang: Answer = (tool, args) =>
+      tool === 'context_bootstrap' && typeof args.query === 'string' ? new Promise<McpToolResult>(() => {}) : engine(tool, args)
+    const w = world(on, hang)
+    await $.session.start(START)
+
+    let sent = false
+    const pending = send($, ASKED).then(() => {
+      sent = true
+    })
+    await w.clock.advance(0)
+    await w.clock.settle()
+
+    expect(boots(w).length).toBe(2)
+    expect(sent).toBe(true)
+    await w.clock.advance(2500)
+    await pending
+  })
+
+  test('a tool error keeps the session-start digest', async ($, on) => {
+    const refused: Answer = (tool, args) =>
+      tool === 'context_bootstrap' && typeof args.query === 'string' ? { content: [{ type: 'text', text: 'query is not valid' }], isError: true } : engine(tool, args)
+    const w = world(on, refused)
+    await $.session.start(START)
+    const before = w.invalidated.length
+
+    await sendThen($, w, ASKED)
+
+    expect(boots(w).length).toBe(2)
+    expect(w.invalidated.length).toBe(before)
+    expect(await sectionHas($, 'prefers pnpm')).toBe(true)
+    expect(w.state['breaker']).toBeUndefined()
+  })
+
+  test('an engine that ignores query leaves the section cache alone', async ($, on) => {
+    const w = world(on)
+    await $.session.start(START)
+    const before = w.invalidated.length
+
+    await sendThen($, w, ASKED)
+
+    expect(boots(w).length).toBe(2)
+    expect(w.invalidated.length).toBe(before)
+  })
+
+  test('digestQuery false sends no query', { options: { digestQuery: false } }, async ($, on) => {
+    const w = world(on, queried)
+    await $.session.start(START)
+    await sendThen($, w, ASKED)
+    expect(boots(w).length).toBe(1)
+    expect(w.calls.some((c) => 'query' in c.args && c.tool === 'context_bootstrap')).toBe(false)
+  })
+
+  test('a late server gets one context_bootstrap call carrying the query', async ($, on) => {
+    let starts = 0
+    const late: Answer = (tool, args) => {
+      if (tool === 'context_bootstrap' && (starts += 1) === 1) throw new Error('connect ECONNREFUSED')
+      return queried(tool, args)
+    }
+    const w = world(on, late)
+    await $.session.start(START)
+
+    await sendThen($, w, ASKED)
+
+    expect(boots(w).length).toBe(2)
+    expect(boots(w)[1]?.args).toEqual({ project: 'proj', query: ASKED })
+    expect(await sectionHas($, 'rotate the backup keys monthly')).toBe(true)
+    // The late call carried the query, so the next session's fallback must not hold its answer.
+    const stored = (w.stored['digest-cache:proj'] as { text?: string } | undefined)?.text ?? ''
+    expect(stored).not.toMatch('rotate the backup keys monthly')
+    await sendThen($, w, 'and where do the logs go?')
+    expect(boots(w).length).toBe(2)
+  })
+
+  test('when the late call also fails, the next eligible prompt carries its own text as the query', async ($, on) => {
+    let starts = 0
+    const twiceDown: Answer = (tool, args) => {
+      if (tool === 'context_bootstrap' && (starts += 1) <= 2) throw new Error('connect ECONNREFUSED')
+      return queried(tool, args)
+    }
+    const w = world(on, twiceDown)
+    await $.session.start(START)
+
+    await sendThen($, w, ASKED)
+    await sendThen($, w, 'where do the deploy logs go?')
+
+    expect(boots(w).length).toBe(3)
+    expect(boots(w)[2]?.args).toEqual({ project: 'proj', query: 'where do the deploy logs go?' })
+  })
+
+  test('the queried digest does not replace the stored digest cache', async ($, on) => {
+    const w = world(on, queried)
+    await $.session.start(START)
+    await sendThen($, w, ASKED)
+    expect(await sectionHas($, 'rotate the backup keys monthly')).toBe(true)
+    const stored = (w.stored['digest-cache:proj'] as { text?: string } | undefined)?.text ?? ''
+    expect(stored).toMatch('prefers pnpm')
+    expect(stored).not.toMatch('rotate the backup keys monthly')
+  })
+
+  test('a new session.start re-arms the refetch', async ($, on) => {
+    const w = world(on, queried)
+    await $.session.start(START)
+    await sendThen($, w, ASKED)
+    await $.session.start(START)
+    expect(boots(w).length).toBe(3)
+
+    await sendThen($, w, 'where do the deploy logs go?')
+    expect(boots(w).length).toBe(4)
+    expect(boots(w)[3]?.args.query).toBe('where do the deploy logs go?')
+  })
+
+  test('clear re-arms the refetch', async ($, on) => {
+    const w = world(on, queried)
+    await $.session.start(START)
+    await sendThen($, w, ASKED)
+    await $.session.end(END_CLEAR)
+
+    await sendThen($, w, 'where do the deploy logs go?')
+    expect(boots(w).length).toBe(3)
+    expect(boots(w)[2]?.args.query).toBe('where do the deploy logs go?')
+  })
 })
 
 describe('permission refusal', () => {

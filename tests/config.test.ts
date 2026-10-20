@@ -9,6 +9,13 @@ describe('readConfig', () => {
     expect(readConfig({ recall: true }).recall).toBe(true)
   })
 
+  test('digestQuery defaults to true and reads a boolean', async () => {
+    expect(DEFAULTS.digestQuery).toBe(true)
+    expect(readConfig({}).digestQuery).toBe(true)
+    expect(readConfig({ digestQuery: false }).digestQuery).toBe(false)
+    expect(readConfig({ digestQuery: 'no' }).digestQuery).toBe(true)
+  })
+
   test('an empty object yields the defaults', async () => {
     expect(readConfig({})).toEqual(DEFAULTS)
   })
