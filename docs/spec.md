@@ -227,7 +227,7 @@ tries the bundled server, then a registered `lumberroom`, which is how a self-ho
    once, and the redraw lands for turn 2, so turn 1 answers from the session-start digest. Setting
    `REFINE_BLOCKS_TURN` to true makes the first eligible prompt wait up to `recallTimeoutMs` (2,500
    ms by default) for the refetch, recall off included, and pays only if turn 1 reads a section
-   invalidated inside `prompt.submit`. Nobody has observed that yet (section 14).
+   invalidated inside `prompt.submit`. Nobody has observed that yet (section 14.1 has the check to run).
 
 **The old pieces** (owner ruling, 2 October 2026: suppress, do not edit global config):
 
@@ -547,6 +547,32 @@ prototype in section 2 and the list in the README.
 - **Recall wording.** `Cloudflare D1 port` surfaced the right memory at similarity 0.77. A bare
   `D1 decision` did not.
 - **Gate.** `npm run gate` passes with 517 tests. That is a unit-level result.
+
+### 14.1 To run: does turn 1 read a section redrawn inside `prompt.submit`
+
+Nobody has run this. It settles `REFINE_BLOCKS_TURN` (`hooks/register.ts`).
+
+1. Run an engine with decision 0034 and a measured floor for its embedding model. Pick a nonce and
+   write one row the session-start digest will not print:
+   `lumberroom write "The staging bucket for project zebra is ZEBRA-<nonce>" --namespace project:zebra`.
+2. Prove the queried digest carries the row, with the token the session will use:
+
+   ```bash
+   curl -s "$LUMBERROOM_URL/mcp" -H 'content-type: application/json' \
+     -H 'accept: application/json, text/event-stream' -H "authorization: Bearer $LUMBERROOM_TOKEN" \
+     --data '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"context_bootstrap","arguments":{"project":"scratch","query":"Which staging bucket does project zebra use? Answer from context only, without calling a tool."}}}'
+   ```
+
+   The `### Related to this request` section must hold `ZEBRA-<nonce>`. If it does not, the row sits
+   below the floor on this store and the check cannot run here.
+3. In the mod's options set `recall` to `false`, so no per-prompt recall block carries the row, and
+   `project` to `scratch`. Set `REFINE_BLOCKS_TURN = true` in a local copy of the mod.
+4. In an empty directory, start `claude --debug`. First prompt: the question from step 2.
+5. Turn 1 read the redraw if the answer names `ZEBRA-<nonce>` and the debug output holds
+   `lumberroom: context_bootstrap with a query replaced the held digest`. Repeat with
+   `REFINE_BLOCKS_TURN = false`, ask the question again on turn 2, and expect the nonce there.
+6. Record the Claude Code version, both outcomes and the date in this section. Keep the constant
+   `false` unless step 5 shows turn 1 reading the redraw.
 
 ## 15. Marketplace and release
 

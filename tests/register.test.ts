@@ -1345,7 +1345,7 @@ describe('token status line', () => {
     expect(last(w)).toMatch(`reminders ${Math.ceil(block.length / 4)},`)
 
     w.toolText = 'x'.repeat(400)
-    await $.tool.call({ tool: 'mcp__lumberroom__memory_search', query: 'build' })
+    await $.tool.call({ tool: 'mcp__lumberroom__memory_search', query: 'build' } as never)
     expect(last(w)).toMatch('tools 100 (1 call)')
 
     await $.tool.call({ tool: 'Read', file_path: `${CWD}/a.md` })
@@ -1364,7 +1364,7 @@ describe('token status line', () => {
     await $.prompt.compose(COMPOSE)
     await send($, 'what did we decide about the build?')
     w.toolText = 'x'.repeat(400)
-    await $.tool.call({ tool: 'mcp__lumberroom__memory_search', query: 'build' })
+    await $.tool.call({ tool: 'mcp__lumberroom__memory_search', query: 'build' } as never)
     await $.session.compact({ trigger: 'manual', messages: TURNS })
     expect(last(w)).toMatch(', reminders 0, tools 0 (0 calls)')
     expect(last(w)).not.toMatch('digest 0,')

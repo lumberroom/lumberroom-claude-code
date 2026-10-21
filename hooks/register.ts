@@ -339,8 +339,8 @@ const ensureDigest = async ($: Dollar, query?: string): Promise<'ok' | 'not_conn
  * Whether prompt.submit waits for the first-prompt digest before the turn goes out. False sends the
  * turn at once and the redraw lands for turn 2. True would make every conversation's first prompt
  * wait up to recallTimeoutMs, recall off included, for a turn-1 redraw nobody has observed: it pays
- * only if Claude Code composes the system prompt after prompt.submit returns. The live check in
- * docs/spec.md section 14 settles whether to flip it.
+ * only if Claude Code composes the system prompt after prompt.submit returns. The check in
+ * docs/spec.md section 14.1 settles whether to flip it; nobody has run it yet.
  */
 const REFINE_BLOCKS_TURN = false
 
@@ -380,6 +380,7 @@ const refineDigest = async ($: Dollar, query: string): Promise<void> => {
   if (text.trim() === '' || held === null || held.project !== (project ?? null) || held.text === text) return
   const fetchedAt = await $.clock.now()
   await update($, digestRef, () => ({ ...held, text, memories, fetchedAt }))
+  debug($, 'context_bootstrap with a query replaced the held digest')
   $.ui.invalidate('prompt.section')
 }
 
