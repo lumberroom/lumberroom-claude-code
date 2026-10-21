@@ -54,6 +54,7 @@ const statsRef = atom(
 )
 const extractedRef = atom({ plugin: 'lumberroom-memory', key: 'extractedThrough' } as const, 0)
 const costRef = atom({ plugin: 'lumberroom-memory', key: 'cost' } as const, NO_COST)
+const promptDigestRef = atom({ plugin: 'lumberroom-memory', key: 'promptDigest' } as const, false)
 
 /** A session end gets about 1.5 s for the whole chain; a model call needs more than this. */
 const SESSION_END_MIN_MS = 1000
@@ -251,16 +252,19 @@ const noteNotConnectedPrompt = ($: Dollar): void => {
   $.ui.toast(`${PLUGIN}: no ${names} MCP server with memory tools is connected. Check /mcp.`)
 }
 
-/** One context_bootstrap through the breaker. Stores the digest on success. */
-const bootstrap = async ($: Dollar): Promise<'ok' | 'not_connected' | 'failed'> => {
+/** One context_bootstrap through the breaker, with the person's request as `query` when given. Stores the digest on success. */
+const bootstrap = async ($: Dollar, query?: string): Promise<'ok' | 'not_connected' | 'failed'> => {
   const project = await projectFor($)
+  const args: Record<string, unknown> = {}
+  if (project !== undefined) args.project = project
+  if (query !== undefined) args.query = query
   // Claude Code suppresses the bundled server when a registered one has its URL, and that one
   // answers instead; the first candidate that is connected becomes the server for the session.
   const candidates = await serversToTry($)
   triedServers = candidates
   let outcome: CallOutcome = { kind: 'not_connected', error: 'no server tried', ms: 0 }
   for (const candidate of candidates) {
-    outcome = await callTool(mcpDeps($), candidate, 'context_bootstrap', project === undefined ? {} : { project }, cfg.bootstrapTimeoutMs)
+    outcome = await callTool(mcpDeps($), candidate, 'context_bootstrap', args, cfg.bootstrapTimeoutMs)
     if (outcome.kind !== 'not_connected') {
       activeServer = candidate
       break
@@ -278,7 +282,8 @@ const bootstrap = async ($: Dollar): Promise<'ok' | 'not_connected' | 'failed'> 
   const fresh = { project: project ?? null, text, memories, fetchedAt }
   await update($, digestRef, () => fresh)
   try {
-    if (text.trim() !== '') await $.store.set(cacheKey(project), fresh)
+    // The next session's fallback stays topic-neutral: a digest built for one request is not stored.
+    if (text.trim() !== '' && query === undefined) await $.store.set(cacheKey(project), fresh)
   } catch (err) {
     logFailure($, 'digest cache', err)
   }
@@ -322,17 +327,67 @@ const bootstrapAtStart = async ($: Dollar): Promise<void> => {
 /**
  * The digest, fetched now when session start missed it. Runs before the recall gate so a server
  * that connected late still gets its digest with recall off. Answers 'not_connected' when the
- * server is absent; any other answer lets the caller go on.
+ * server is absent; any other answer lets the caller go on. A `query` rides on that one call.
  */
-const ensureDigest = async ($: Dollar): Promise<'ok' | 'not_connected'> => {
+const ensureDigest = async ($: Dollar, query?: string): Promise<'ok' | 'not_connected'> => {
   if ((await read($, digestRef)) !== null) return 'ok'
   if (!(await gate($))) return 'ok'
-  return (await bootstrap($)) === 'not_connected' ? 'not_connected' : 'ok'
+  return (await bootstrap($, query)) === 'not_connected' ? 'not_connected' : 'ok'
 }
 
-const recallBlock = async ($: Dollar, text: string, originKind: string | undefined): Promise<string> => {
+/**
+ * Whether prompt.submit waits for the first-prompt digest before the turn goes out. False sends the
+ * turn at once and the redraw lands for turn 2. True would make every conversation's first prompt
+ * wait up to recallTimeoutMs, recall off included, for a turn-1 redraw nobody has observed: it pays
+ * only if Claude Code composes the system prompt after prompt.submit returns. The check in
+ * docs/spec.md section 14.1 settles whether to flip it; nobody has run it yet.
+ */
+const REFINE_BLOCKS_TURN = false
+
+/**
+ * Claims this conversation's one queried digest: the query when this prompt is the first eligible
+ * one, else undefined. The claim is stored before any call goes out, so the recall path and the
+ * refetch, which run side by side, never both send it.
+ */
+const claimPromptQuery = async ($: Dollar, text: string, originKind: string | undefined): Promise<string | undefined> => {
+  if (!cfg.digestQuery || recallStopped || !isEligible(text, originKind)) return undefined
+  if (await read($, promptDigestRef)) return undefined
+  // A held digest and no server: the refetch would cost a call and change nothing.
+  if (serverAbsent && (await read($, digestRef)) !== null) return undefined
+  await update($, promptDigestRef, () => true)
+  return clipQuery(text)
+}
+
+/**
+ * Refetches the held digest with the conversation's first eligible prompt as its query. An engine
+ * without `query` ignores it and answers the same text, which leaves the section cache alone. A
+ * timeout or an error keeps the session-start digest, with no retry. The call never feeds the
+ * breaker: the session-start digest is held, so a slow refetch is no outage, and recording it
+ * would toast "unreachable" beside a search that answered.
+ */
+const refineDigest = async ($: Dollar, query: string): Promise<void> => {
+  if (!(await gate($))) return
+  const project = await projectFor($)
+  const args: Record<string, unknown> = { query }
+  if (project !== undefined) args.project = project
+  const outcome = await callTool(mcpDeps($), serverName(), 'context_bootstrap', args, cfg.recallTimeoutMs)
+  if (outcome.kind !== 'ok') {
+    debug($, `context_bootstrap with a query gave ${outcome.kind}; keeping the session-start digest`)
+    return
+  }
+  const { text, memories } = digestFrom(outcome.data)
+  const held = await read($, digestRef)
+  if (text.trim() === '' || held === null || held.project !== (project ?? null) || held.text === text) return
+  const fetchedAt = await $.clock.now()
+  await update($, digestRef, () => ({ ...held, text, memories, fetchedAt }))
+  debug($, 'context_bootstrap with a query replaced the held digest')
+  $.ui.invalidate('prompt.section')
+}
+
+/** `digestQuery` rides on the digest fetch when the digest is still missing. */
+const recallBlock = async ($: Dollar, text: string, originKind: string | undefined, digestQuery?: string): Promise<string> => {
   if (recallStopped || !isPersonPrompt(text, originKind)) return ''
-  if ((await ensureDigest($)) === 'not_connected') {
+  if ((await ensureDigest($, digestQuery)) === 'not_connected') {
     noteNotConnectedPrompt($)
     return ''
   }
@@ -795,6 +850,7 @@ export const register: Register = (on, options) => {
       toldDenied = false
       projectMemo = undefined
       activeServer = undefined
+      await update($, promptDigestRef, () => false)
       try {
         await $.command.register({ name: 'lr-import', description: "Send Claude Code's memory files to lumberroom's proposal queue", argumentHint: '[all | plan | confirm <n|folder|all> [namespace] | skip <n>]' })
         await $.command.register({ name: 'lr-setup', description: "Allow the plugin's own lumberroom calls, then load the digest", argumentHint: '[show]' })
@@ -850,7 +906,18 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     let block = ''
     try {
-      block = await recallBlock($, e.text, e.origin?.kind)
+      const kind = e.origin?.kind
+      const query = await claimPromptQuery($, e.text, kind)
+      // With no digest held yet, ensureDigest sends the query on its own call, so a late server
+      // costs one call. With one held, the refetch runs on a timer unless REFINE_BLOCKS_TURN is set.
+      const held = query !== undefined && (await read($, digestRef)) !== null
+      const refine = (): Promise<void> =>
+        query === undefined ? Promise.resolve() : refineDigest($, query).catch((err: unknown) => logFailure($, 'digest refetch', err))
+      if (held && !REFINE_BLOCKS_TURN) $.clock.after(0, () => void refine())
+      const [recalled] = await Promise.all([recallBlock($, e.text, kind, held ? undefined : query), held && REFINE_BLOCKS_TURN ? refine() : undefined])
+      block = recalled
+      // The digest still missing means the query never reached a server; the next eligible prompt tries again.
+      if (query !== undefined && !held && (await read($, digestRef)) === null) await update($, promptDigestRef, () => false)
     } catch (err) {
       logFailure($, 'prompt.submit', err)
     }
@@ -899,8 +966,16 @@ export const register: Register = (on, options) => {
     }
     const res = await next(e)
     // /clear starts a conversation with no session.start. Hits sent before it are gone from the
-    // model's context, so they may attach again.
-    if (e.reason === 'clear') await resetDedup($)
+    // model's context, so they may attach again, and the new conversation's first prompt sets the
+    // digest's query again.
+    if (e.reason === 'clear') {
+      await resetDedup($)
+      try {
+        await update($, promptDigestRef, () => false)
+      } catch (err) {
+        logFailure($, 'digest query reset', err)
+      }
+    }
     return res
   })
 

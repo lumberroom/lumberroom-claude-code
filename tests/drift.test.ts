@@ -4,7 +4,7 @@ import { SNAPSHOT } from './fixtures/tools-snapshot'
 
 /** Every engine call the plugin makes and the argument names it sends. Extend it with the code. */
 export const PLUGIN_CALLS: Record<string, readonly string[]> = {
-  context_bootstrap: ['project'],
+  context_bootstrap: ['project', 'query'],
   memory_search: ['query', 'namespaces', 'limit', 'project'],
   memory_write: ['content', 'namespace', 'tags', 'supersedes'],
   review_queue: ['source', 'limit'],

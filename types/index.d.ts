@@ -72,6 +72,8 @@ declare module 'claude-code' {
       /** Index into $.session.messages() the extractor last read up to. */
       extractedThrough: number
       cost: LumberroomCost
+      /** True once this conversation's first eligible prompt went to context_bootstrap as its query. */
+      promptDigest: boolean
     }
   }
 }

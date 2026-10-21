@@ -21,6 +21,8 @@ export interface Config {
   project: string
   /** Off by default: each recall block stays in context for the rest of the session (spec 2.1). */
   recall: boolean
+  /** Sends the first eligible prompt to context_bootstrap as its query, once a conversation. */
+  digestQuery: boolean
   /** Other projects to search with each prompt, in the engine's slug form, deduplicated. May hold the current project's own slug; `extrasFor` resolves it. */
   recallExtraProjects: RecallExtras
   recallLimit: number
@@ -41,6 +43,7 @@ export interface Config {
 export const DEFAULTS: Config = {
   project: 'auto',
   recall: false,
+  digestQuery: true,
   recallExtraProjects: { everywhere: [], byProject: {} },
   recallLimit: 6,
   recallMaxChars: 4000,
@@ -110,6 +113,7 @@ export function readConfig(options: Readonly<Record<string, unknown>>): Config {
   const config: Config = {
     project: str(options.project, DEFAULTS.project),
     recall: bool(options.recall, DEFAULTS.recall),
+    digestQuery: bool(options.digestQuery, DEFAULTS.digestQuery),
     recallExtraProjects: extras(options.recallExtraProjects),
     recallLimit: num(options.recallLimit, DEFAULTS.recallLimit, 1, 20),
     recallMaxChars: num(options.recallMaxChars, DEFAULTS.recallMaxChars, 500, 16000),
