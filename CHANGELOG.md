@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-21
+
 ### Added
 
 - The digest follows the conversation's first request. The first prompt of 12 characters or more goes to `context_bootstrap` as `query`, and the section redraws with the engine's related facts and a profile ordered by relevance. It runs once a conversation, recall on or off, within `recallTimeoutMs`. A timeout, an error or an engine without `query` keeps the session-start digest and raises no toast. `digestQuery: false` turns it off. The refetch runs after the turn goes out, so the first prompt waits for nothing extra and the redrawn section is built to reach the model from the second turn on. No live session has confirmed that yet; `docs/spec.md` section 14.1 has the check. A refetch that replaces the digest writes one debug line. The system prompt changes once, after that prompt. Needs an engine with decision 0034.
