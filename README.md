@@ -310,7 +310,7 @@ Observed in a live 2.1.287 session:
 
 UI work is tracked in [issue #1](https://github.com/lumberroom/lumberroom-claude-code/issues/1): a
 recall-and-why pane, a cost and latency band, and `/lr-asof`. The token status line is the first
-piece. Toasts are dropped from the plan. Engine proposals P1 to P8 are in [docs/spec.md](docs/spec.md).
+piece. Toasts are dropped from the plan.
 
 ## Develop
 
@@ -318,8 +318,6 @@ piece. Toasts are dropped from the plan. Engine proposals P1 to P8 are in [docs/
 npm install          # TypeScript, for type-checking only
 npm run gate         # validates both manifests, tsc, claude plugin test (514 tests on 5 October 2026)
 ```
-
-Design and measurements: [docs/spec.md](docs/spec.md). Task order: [docs/plan.md](docs/plan.md).
 
 ## License
 
