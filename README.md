@@ -77,9 +77,9 @@ spawns no process or agent, and calls no shell tool. The one file it writes is y
 | `session.start` | Calls `context_bootstrap` on the lumberroom server, caches the digest, registers `/lr-import` and `/lr-setup` and draws the status line |
 | `prompt.compose` | Adds the digest and the write rule to the system prompt as one section |
 | `prompt.section` (`memory`) | Removes Claude Code's built-in memory section when `replaceBuiltinMemory` is on |
-| `prompt.submit` | Adds the reminder every `reviewInterval` prompts; on the conversation's first eligible prompt, refetches the digest with that prompt as `query`; with `recall` on, calls `memory_search` and attaches the hits |
+| `prompt.submit` | Adds the reminder every `reviewInterval` prompts; on the conversation's first eligible prompt, refetches the digest with that prompt as `query`; with `recall` on, calls `memory_search` and attaches the hits. Under an organization's guard, also attaches the digest once a conversation ([Organization-managed Claude Code](#organization-managed-claude-code)) |
 | `tool.call` | See below |
-| `turn.complete`, `session.end`, `session.compact` | Run the extractor when it is on: a model call through Claude Code, then `memory_search` and `memory_write` |
+| `turn.complete`, `session.end`, `session.compact` | Run the extractor when it is on: a model call through Claude Code, then `memory_search` and `memory_write`. `turn.complete` also notes a finished turn that `prompt.compose` never saw |
 | `command.run` (`lr-import`, `lr-setup`) | Answers `/lr-import` and `/lr-setup`, the plugin's own commands; no other command reaches this hook |
 
 **What `tool.call` does with the calls it sees.** It reads the tool name and the path argument. With
@@ -220,6 +220,97 @@ digest loads in the same session. [docs/permissions.md](docs/permissions.md) has
 would rather add them by hand. Until you do, the session starts without the digest and the plugin
 shows a toast that points at `/lr-setup`.
 
+## Organization-managed Claude Code
+
+On a machine with managed settings, or under a Team or Enterprise `/login`, Claude Code seats a
+built-in guard, [`sec-default@builtin`](https://github.com/anthropics/claude-code/blob/main/mods/sec-default/README.md)
+(`cc-plugin-sec-default` in `/plugin` and the debug log). Your users can't turn it off. A plugin
+installed from a GitHub marketplace runs in the user tier, and the guard sends some events past that
+tier, so three of this plugin's hooks never run:
+
+| Hook the guard skips | What you lose |
+| --- | --- |
+| `prompt.compose` | The digest section in the system prompt |
+| `prompt.section` (`memory`) | Removing Claude Code's built-in memory section. The `tool.call` guard on the memory files still works |
+| `session.compact` | The extraction before compaction and the keep-facts line in the compaction instructions |
+
+`session.start`, `prompt.submit`, `tool.call`, `turn.complete`, `session.end` and the commands still
+run.
+
+**Best route: have your admin seat the plugin as the organization's.** The guard leaves alone a
+plugin your organization seats in its own tier, so every hook runs. Claude Code counts a plugin as
+the organization's only when it loads in place from a local directory marketplace. A copy from
+GitHub, git, a URL or npm counts as a user's, even when managed `enabledPlugins` turns it on. Your admin:
+
+1. Copies this repository, [lumberroom-claude-code](https://github.com/lumberroom/lumberroom-claude-code),
+   to the same path on every machine, in a directory only an administrator can write, for example
+   `/opt/acme/claude-plugins/plugins/lumberroom-memory`.
+2. Writes `/opt/acme/claude-plugins/.claude-plugin/marketplace.json`, named `lumberroom`, that lists
+   the plugin by a relative path:
+
+   ```json
+   {
+     "name": "lumberroom",
+     "owner": { "name": "Acme" },
+     "plugins": [{ "name": "lumberroom-memory", "source": "./plugins/lumberroom-memory" }]
+   }
+   ```
+
+3. Adds this to managed settings:
+
+   ```json
+   {
+     "extraKnownMarketplaces": {
+       "lumberroom": { "source": { "source": "directory", "path": "/opt/acme/claude-plugins" } }
+     },
+     "enabledPlugins": { "lumberroom-memory@lumberroom": true },
+     "appendPlugins": ["lumberroom-memory@lumberroom"]
+   }
+   ```
+
+The managed marketplace named `lumberroom` replaces a user's own `lumberroom` marketplace entry,
+the GitHub one `/plugin marketplace add` registers, so each machine loads one copy. The repository
+root holds both the plugin and its own `.claude-plugin/marketplace.json`; nobody has yet tested
+that copy nested under another marketplace.
+
+`appendPlugins` runs the plugin behind your users' mods, inside the guard. If you list it in
+`prependPlugins` instead, name `sec-default@builtin` in that list too, because the list replaces the
+whole prepend tier. To check, run `claude --debug`: the line `hooks module
+lumberroom-memory@lumberroom loaded` should say `tier append`. The admin steps come from
+[Manage mods for your organization](https://code.claude.com/docs/en/plugins/mods/admin.md).
+
+If managed settings turn on the guard's `allowManagedModsOnly` option, the guard refuses a user-tier
+copy outright: nothing runs, and the debug log names `allowManagedModsOnly`. The admin route is
+then the only one.
+
+**Without an admin: the plugin falls back to prompt context.** When a turn finishes and the
+plugin's `prompt.compose` hook never ran, the plugin decides the guard holds it. It logs one line
+in the transcript and stores that in its plugin storage. From then on it attaches the digest and the
+write rule to your prompt once a conversation, as prompt context:
+
+- **The first session on a machine gets the digest from its second prompt.** An interactive session
+  composes the system prompt after the first prompt goes out, so that prompt can't tell yet. Later
+  sessions on the same machine attach it to the first prompt.
+- **The copy waits for the query.** On the first eligible prompt the plugin waits up to
+  `recallTimeoutMs` for the digest fetched with that prompt as `query`, so the one copy carries the
+  facts related to the request.
+- **The copy stays in the transcript.** It costs its tokens on every later turn, as the section
+  does, but a refetched digest does not replace it. The status line counts it under `digest`.
+- **`/clear` and compaction send it again.** The guard hides compaction from the plugin too, so the
+  plugin counts the conversation's messages at each prompt and at the end of each turn, and reads a
+  drop as a compaction. The next prompt then carries a fresh copy and recall's duplicate check
+  resets. A compaction in the middle of a turn that leaves more messages than the last count goes
+  unnoticed.
+- **The guard going away undoes it.** As soon as `prompt.compose` runs again, the plugin clears the
+  stored flag and the system prompt carries the digest. The digest can show up twice on that one turn.
+- **A plugin loaded in the middle of a session can trip it once.** Claude Code may have built the
+  system prompt before the plugin loaded, so `prompt.compose` doesn't fire and the plugin takes the
+  turn for the guard. The next session clears the flag on its first `prompt.compose`.
+
+What the fallback can't bring back: Claude Code's built-in memory section stays in the system
+prompt, and nothing runs at compaction. Set `extractor` to `turn` or `session-end`, both of which
+still run under the guard, if you want automatic extraction.
+
 ## Options
 
 Set them in `/config`, or under `pluginConfigs["lumberroom-memory"].options` in
@@ -291,7 +382,7 @@ Send `{"ingestToken":""}` the same way to clear it and fall back to the CLI.
 
 ## Implemented versus verified
 
-Everything above is implemented. `npm run gate` passes with 514 tests, a unit-level result: it covers
+Everything above is implemented. `npm run gate` runs 558 tests, a unit-level result (4 failed on Claude Code 2.1.309 on 23 October 2026, all from before the guard fallback): it covers
 the logic and the hooks `claude plugin test` can reach. A unit test does not show that a live session
 behaves the same way, so this section lists what a live Claude Code 2.1.287 session has shown.
 
@@ -306,6 +397,22 @@ Observed in a live 2.1.287 session:
 - The write rule was left out of the section because `~/.claude/CLAUDE.md` already carries a `# Durable memory` block. Claude Code's own memory section was absent.
 - Recall depends on query wording. `Cloudflare D1 port` surfaced the right memory at similarity 0.77; a bare `D1 decision` did not. Put the subject in the prompt.
 
+Observed under a seated `sec-default@builtin`, in interactive Claude Code 2.1.309 sessions on
+23 October 2026 (managed settings in `/Library/Application Support/ClaudeCode/managed-settings.json`,
+the plugin in the user tier):
+
+- The first session's first prompt carried no copy. The notice appeared once that turn ended, the
+  second prompt carried the digest drawn with the first prompt as `query`, and the third carried none.
+- A new session's first prompt carried the copy, from the flag the earlier session stored.
+- After `/clear`, the next prompt carried the copy, the one after it none, and the notice did not
+  appear again. Claude Code starts that conversation with fresh `$.state` and no `session.start`, so
+  the plugin reads the stored flag on each prompt until it holds one.
+- After `/compact`, the next prompt carried the copy and the one after it none. The plugin counts
+  the messages of the next request (`$.session.messages({ as: 'api' })`), because the plain
+  transcript keeps the rows a compaction replaced.
+- With the managed-settings file removed, the next session's system prompt held the section, its
+  first prompt carried the one documented double copy, the second none, and the flag was gone.
+
 ## Roadmap
 
 UI work is tracked in [issue #1](https://github.com/lumberroom/lumberroom-claude-code/issues/1): a
@@ -316,7 +423,7 @@ piece. Toasts are dropped from the plan.
 
 ```
 npm install          # TypeScript, for type-checking only
-npm run gate         # validates both manifests, tsc, claude plugin test (514 tests on 5 October 2026)
+npm run gate         # validates both manifests, tsc, claude plugin test (558 tests on 23 October 2026)
 ```
 
 ## License

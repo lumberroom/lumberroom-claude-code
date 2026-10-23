@@ -3,7 +3,8 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
 import { COMPACT_LINE } from '../hooks/register'
-import { SECTION_ID } from '../src/digest'
+import { DIGEST_HEADING, SECTION_ID } from '../src/digest'
+import { GUARD_NOTICE, GUARD_SEEN_KEY } from '../src/fallback'
 import { GUARD_REASON } from '../src/guard'
 import { DATA_NOTE, NUDGE_LINE, PERMISSION_TOAST, RECALL_CLOSE, RECALL_OPEN, REMINDER_CLOSE, REMINDER_OPEN, UNREACHABLE_TOAST } from '../src/recall'
 
@@ -64,6 +65,8 @@ function world(on: On, answer: Answer = engine, fs: Files = {}) {
     stored: {} as Record<string, unknown>,
     denyState: false,
     messages: [] as SessionMessage[],
+    /** The next request's messages, as `{ as: 'api' }` reads them; undefined reads `messages`. */
+    request: undefined as SessionMessage[] | undefined,
     turns: 1,
     modelText: undefined as string | undefined,
     /** Answers a model call by its prompt; wins over modelText. */
@@ -101,7 +104,7 @@ function world(on: On, answer: Answer = engine, fs: Files = {}) {
   on('session.cwd', () => ({ value: w.cwd }))
   on('session.root', () => ({ value: w.cwd }))
   on('session.turns', () => ({ value: w.turns }))
-  on('session.messages', () => ({ value: w.messages }))
+  on('session.messages', (_$, e) => ({ value: e.as === 'api' ? (w.request ?? w.messages) : w.messages }))
   on('fs.exists', (_$, e) => ({ value: e.path === `${w.cwd}/.git` || e.path in files || e.path in dirs }))
   on('fs.read', (_$, e) => (e.path in files ? { value: files[e.path] ?? '' } : { deny: `ENOENT ${e.path}` }))
   on('fs.write', (_$, e) => {
@@ -1374,6 +1377,142 @@ describe('token status line', () => {
 const FACT_LINE = JSON.stringify({ content: 'The project ships with pnpm only.', namespace: 'project:proj', tags: [] })
 const DONE = { answer: 'ok', durationMs: 5, isAborted: false, turnId: 't1', reason: 'answer' } as const
 const TURN_MODE = { extractor: 'turn', reviewInterval: 1 } as const
+
+// Claude Code's built-in guard (sec-default) holds prompt.compose past the user tier. A test leaves
+// $.prompt.compose unraised to stand for it.
+describe('guard fallback', () => {
+  const ASKED = 'how do we rotate the backup keys?'
+  const QUERIED = '## Active project: proj\n- prefers pnpm\n### Related to this request\n- rotate the backup keys monthly'
+  const queried: Answer = (tool, args) =>
+    tool === 'context_bootstrap' && typeof args.query === 'string' ? json({ text: QUERIED, counts: { memories: 3 } }) : engine(tool, args)
+  const digestsIn = (context: readonly string[] | undefined) => (context ?? []).filter((c) => c.startsWith(DIGEST_HEADING))
+  const END_CLEAR = { reason: 'clear', sessionId: 's1', resume: { id: 's1' } } as never
+
+  test('a turn that ends with no prompt.compose stores the flag, says so once, and the next prompt carries the digest once', async ($, on) => {
+    const w = world(on)
+    await $.session.start(START)
+    await send($, 'what did we decide about the build?')
+    expect(digestsIn(w.submitted[0]?.context)).toEqual([])
+
+    await $.turn.complete(DONE)
+    await $.turn.complete(DONE)
+    expect(w.stored[GUARD_SEEN_KEY]).toBe(true)
+    expect(w.logs.filter((l) => l === GUARD_NOTICE).length).toBe(1)
+
+    await send($, 'and where do the logs go?')
+    const [digest] = digestsIn(w.submitted[1]?.context)
+    expect(digest).toMatch('prefers pnpm')
+    await send($, 'and the deploy target?')
+    expect(digestsIn(w.submitted[2]?.context)).toEqual([])
+  })
+
+  test('a turn after prompt.compose ran sets no flag and the prompts carry no digest', async ($, on) => {
+    const w = world(on)
+    await $.session.start(START)
+    await send($, 'what did we decide about the build?')
+    await $.prompt.compose(COMPOSE)
+    await $.turn.complete(DONE)
+    await send($, 'and where do the logs go?')
+    expect(w.stored[GUARD_SEEN_KEY]).toBeUndefined()
+    expect(w.submitted.flatMap((s) => digestsIn(s.context))).toEqual([])
+    expect(w.logs).not.toContain(GUARD_NOTICE)
+  })
+
+  test("a subagent's turn and an aborted turn set no flag", async ($, on) => {
+    const w = world(on)
+    await $.session.start(START)
+    await $.turn.complete({ ...DONE, agentId: 'a1' } as never)
+    await $.turn.complete({ ...DONE, reason: 'aborted', isAborted: true })
+    expect(w.stored[GUARD_SEEN_KEY]).toBeUndefined()
+  })
+
+  test('a guard seen in an earlier session puts the queried digest on the first prompt', async ($, on) => {
+    const w = world(on, queried)
+    w.stored[GUARD_SEEN_KEY] = true
+    await $.session.start(START)
+    await send($, ASKED)
+    const [digest] = digestsIn(w.submitted[0]?.context)
+    expect(digest).toMatch('rotate the backup keys monthly')
+  })
+
+  test('the context digest goes ahead of the recall block', { options: { recall: true } }, async ($, on) => {
+    const w = world(on)
+    w.stored[GUARD_SEEN_KEY] = true
+    await $.session.start(START)
+    await send($, 'how do I build this project?')
+    const context = w.submitted[0]?.context ?? []
+    expect(context.length).toBe(2)
+    expect(context[0]).toMatch(DIGEST_HEADING)
+    expect(context[1]).toMatch(RECALL_OPEN)
+  })
+
+  test('prompt.compose running clears the stored flag and the prompts carry no digest', async ($, on) => {
+    const w = world(on)
+    w.stored[GUARD_SEEN_KEY] = true
+    await $.session.start(START)
+    await $.prompt.compose(COMPOSE)
+    await send($, 'what did we decide about the build?')
+    expect(GUARD_SEEN_KEY in w.stored).toBe(false)
+    expect(digestsIn(w.submitted[0]?.context)).toEqual([])
+  })
+
+  test('a compaction the guard hid shows as fewer messages, and the next prompt carries the digest again', async ($, on) => {
+    const w = world(on)
+    w.stored[GUARD_SEEN_KEY] = true
+    await $.session.start(START)
+    w.messages = [...TURNS, ...TURNS, ...TURNS]
+    await send($, 'what did we decide about the build?')
+    w.messages = [...TURNS, ...TURNS, ...TURNS, ...TURNS]
+    await send($, 'and where do the logs go?')
+    // The transcript keeps what the compaction replaced; the next request holds the summary.
+    w.messages = [...TURNS, ...TURNS, ...TURNS, ...TURNS, ...TURNS]
+    w.request = TURNS
+    await send($, 'and the deploy target?')
+    expect(w.submitted.map((s) => digestsIn(s.context).length)).toEqual([1, 0, 1])
+  })
+
+  test('a turn that grew the conversation and then compacted it sends the digest again', async ($, on) => {
+    const w = world(on)
+    w.stored[GUARD_SEEN_KEY] = true
+    await $.session.start(START)
+    await send($, 'what did we decide about the build?')
+    w.messages = [...TURNS, ...TURNS, ...TURNS, ...TURNS]
+    await $.turn.complete(DONE)
+    w.messages = [...TURNS, ...TURNS, ...TURNS, ...TURNS, ...TURNS]
+    w.request = [...TURNS, ...TURNS]
+    await send($, 'and where do the logs go?')
+    expect(w.submitted.map((s) => digestsIn(s.context).length)).toEqual([1, 1])
+  })
+
+  test('/clear sends the digest again with the next prompt', async ($, on) => {
+    const w = world(on)
+    w.stored[GUARD_SEEN_KEY] = true
+    await $.session.start(START)
+    await send($, 'what did we decide about the build?')
+    await $.session.end(END_CLEAR)
+    await send($, 'and where do the logs go?')
+    expect(w.submitted.map((s) => digestsIn(s.context).length)).toEqual([1, 1])
+  })
+
+  // Claude Code 2.1.309 starts the conversation after /clear with fresh $.state and no session.start.
+  test('a conversation with fresh state and no session.start reads the stored flag', async ($, on) => {
+    const w = world(on, queried)
+    w.stored[GUARD_SEEN_KEY] = true
+    await send($, ASKED)
+    await $.turn.complete(DONE)
+    expect(digestsIn(w.submitted[0]?.context)[0]).toMatch('rotate the backup keys monthly')
+    expect(w.logs).not.toContain(GUARD_NOTICE)
+  })
+
+  test('a slash command carries no digest and leaves it for the next prompt', async ($, on) => {
+    const w = world(on)
+    w.stored[GUARD_SEEN_KEY] = true
+    await $.session.start(START)
+    await send($, '/help')
+    await send($, 'what did we decide about the build?')
+    expect(w.submitted.map((s) => digestsIn(s.context).length)).toEqual([0, 1])
+  })
+})
 
 describe('extractor', () => {
   test('off: a finished turn on every interval makes no model call and no write', { options: { extractor: 'off', reviewInterval: 1 } }, async ($, on) => {
