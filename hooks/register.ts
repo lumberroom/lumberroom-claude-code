@@ -340,7 +340,7 @@ const ensureDigest = async ($: Dollar, query?: string): Promise<'ok' | 'not_conn
  * turn at once and the redraw lands for turn 2. True would make every conversation's first prompt
  * wait up to recallTimeoutMs, recall off included, for a turn-1 redraw nobody has observed: it pays
  * only if Claude Code composes the system prompt after prompt.submit returns. The check in
- * docs/spec.md section 14.1 settles whether to flip it; nobody has run it yet.
+ * Nobody has yet run the check that would settle whether to flip it.
  */
 const REFINE_BLOCKS_TURN = false
 
