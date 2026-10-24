@@ -200,7 +200,6 @@ function world(on: On, answer: Answer = engine, fs: Files = {}) {
     }
     return w.toolText === undefined ? { result: 'ran' } : { result: 'ran', text: w.toolText }
   })
-  on('tool.check', () => ({ decision: 'ask' as const }))
   return w
 }
 
@@ -950,8 +949,13 @@ describe('tool guard', () => {
 })
 
 describe('tool.check', () => {
+  // The rules beneath. Hooked here alone: the kit raises tool.check on every $.tool.call once a test
+  // hooks it, and an ask with nobody to answer refuses the call.
+  const rulesAsk = (on: On) => on('tool.check', () => ({ decision: 'ask' as const }))
+
   test('passes a call from the engine on to the rules beneath', async ($, on) => {
     world(on)
+    rulesAsk(on)
     await $.session.start(START)
     const out = await $.tool.check({ tool: 'mcp__lumberroom__memory_search', input: {} })
     expect(out.decision).toBe('ask')
@@ -974,6 +978,7 @@ describe('tool.check', () => {
     },
     async ($, on) => {
       world(on)
+      rulesAsk(on)
       await $.session.start(START)
       expect((await run($, 'other')).text).toBe('ask')
     },
