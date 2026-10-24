@@ -382,7 +382,7 @@ Send `{"ingestToken":""}` the same way to clear it and fall back to the CLI.
 
 ## Implemented versus verified
 
-Everything above is implemented. `npm run gate` runs 558 tests, a unit-level result (4 failed on Claude Code 2.1.309 on 23 October 2026, all from before the guard fallback): it covers
+Everything above is implemented. `npm run gate` runs 558 tests, a unit-level result (all pass on Claude Code 2.1.309 on 24 October 2026): it covers
 the logic and the hooks `claude plugin test` can reach. A unit test does not show that a live session
 behaves the same way, so this section lists what a live Claude Code 2.1.287 session has shown.
 
@@ -423,7 +423,7 @@ piece. Toasts are dropped from the plan.
 
 ```
 npm install          # TypeScript, for type-checking only
-npm run gate         # validates both manifests, tsc, claude plugin test (558 tests on 23 October 2026)
+npm run gate         # validates both manifests, tsc, claude plugin test (558 tests on 24 October 2026)
 ```
 
 ## License
