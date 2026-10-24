@@ -11,6 +11,7 @@ import type { Config } from '../src/config'
 import { afterContextReset, estimateTokens, formatStatus, isServerTool, NO_COST } from '../src/cost'
 import type { Cost } from '../src/cost'
 import { buildSection, digestFrom, hasDurableMemoryBlock, SECTION_ID } from '../src/digest'
+import { GUARD_NOTICE, GUARD_SEEN_KEY, guardHeld } from '../src/fallback'
 import { buildExtractPrompt, buildJudgePrompt, parseFacts, parseJudge, turnsFrom } from '../src/extractor'
 import type { Turn } from '../src/extractor'
 import { GUARD_REASON, GUARDED_TOOLS, isBuiltinMemoryPath, normalizePath, parentOf, pathArg } from '../src/guard'
@@ -55,6 +56,9 @@ const statsRef = atom(
 const extractedRef = atom({ plugin: 'lumberroom-memory', key: 'extractedThrough' } as const, 0)
 const costRef = atom({ plugin: 'lumberroom-memory', key: 'cost' } as const, NO_COST)
 const promptDigestRef = atom({ plugin: 'lumberroom-memory', key: 'promptDigest' } as const, false)
+const composedRef = atom({ plugin: 'lumberroom-memory', key: 'composed' } as const, false)
+const guardedRef = atom({ plugin: 'lumberroom-memory', key: 'guarded' } as const, false)
+const contextDigestRef = atom({ plugin: 'lumberroom-memory', key: 'contextDigest' } as const, { shown: false, messages: 0 })
 
 /** A session end gets about 1.5 s for the whole chain; a model call needs more than this. */
 const SESSION_END_MIN_MS = 1000
@@ -338,9 +342,10 @@ const ensureDigest = async ($: Dollar, query?: string): Promise<'ok' | 'not_conn
 /**
  * Whether prompt.submit waits for the first-prompt digest before the turn goes out. False sends the
  * turn at once and the redraw lands for turn 2. True would make every conversation's first prompt
- * wait up to recallTimeoutMs, recall off included, for a turn-1 redraw nobody has observed: it pays
- * only if Claude Code composes the system prompt after prompt.submit returns. The check in
- * Nobody has yet run the check that would settle whether to flip it.
+ * wait up to recallTimeoutMs, recall off included. It pays only where Claude Code composes the
+ * system prompt after prompt.submit returns: a probe mod on 2.1.309 saw prompt.compose after
+ * prompt.submit in an interactive session and before it under claude -p. The context digest
+ * (usesContextDigest) waits regardless, since it goes out once.
  */
 const REFINE_BLOCKS_TURN = false
 
@@ -382,6 +387,48 @@ const refineDigest = async ($: Dollar, query: string): Promise<void> => {
   await update($, digestRef, () => ({ ...held, text, memories, fetchedAt }))
   debug($, 'context_bootstrap with a query replaced the held digest')
   $.ui.invalidate('prompt.section')
+}
+
+/**
+ * True when this prompt carries the digest itself: the guard held prompt.compose in this session,
+ * or in an earlier one on this machine by the store, and the compose hook has not run since.
+ */
+const usesContextDigest = async ($: Dollar, text: string, originKind: string | undefined): Promise<boolean> =>
+  isPersonPrompt(text, originKind) && (await guardOn($)) && !(await read($, composedRef))
+
+/**
+ * True while the guard holds prompt.compose. /clear gives the new conversation fresh $.state and
+ * raises no session.start, so the flag a past turn stored is read again here.
+ */
+const guardOn = async ($: Dollar): Promise<boolean> => {
+  if (await read($, guardedRef)) return true
+  if ((await read($, composedRef)) || (await $.store.get(GUARD_SEEN_KEY)) !== true) return false
+  await update($, guardedRef, () => true)
+  return true
+}
+
+/**
+ * The guard hides a compaction from session.compact too. The next request then holds fewer
+ * messages than the last prompt saw, and the digest and the recall hits it carried are gone. The
+ * plain transcript keeps the rows a compaction replaced, so the count reads the request's form.
+ */
+const noteContextShrink = async ($: Dollar): Promise<void> => {
+  const now = (await $.session.messages({ as: 'api' })).length
+  const held = await read($, contextDigestRef)
+  if (now < held.messages) {
+    await resetDedup($)
+    await update($, contextDigestRef, () => ({ shown: false, messages: now }))
+  } else if (now !== held.messages) {
+    await update($, contextDigestRef, (c) => ({ ...c, messages: now }))
+  }
+}
+
+/** The section text for the conversation's one context copy; '' once it went out, or with no digest held. */
+const contextDigest = async ($: Dollar): Promise<string> => {
+  if ((await read($, contextDigestRef)).shown || (await read($, digestRef)) === null) return ''
+  const text = await sectionText($)
+  if (text !== '') await update($, contextDigestRef, (c) => ({ ...c, shown: true }))
+  return text
 }
 
 /** `digestQuery` rides on the digest fetch when the digest is still missing. */
@@ -836,6 +883,29 @@ const runSetup = async ($: Dollar, rawArgs: string): Promise<string> => {
   return `lr-setup: ${added} lumberroom has not answered yet. Start a new session; if the digest is still missing, check /mcp for "${server}".`
 }
 
+/** The compose hook runs, so the guard holds nothing here: the system prompt carries the digest from now on. */
+const composedOnce = async ($: Dollar): Promise<void> => {
+  await update($, composedRef, () => true)
+  if (!(await read($, guardedRef))) return
+  await update($, guardedRef, () => false)
+  try {
+    await $.store.delete(GUARD_SEEN_KEY)
+  } catch (err) {
+    logFailure($, 'guard flag', err)
+  }
+}
+
+/** A turn the guard answered past the plugin's compose hook: the digest moves to prompt.submit context. */
+const noteGuard = async ($: Dollar): Promise<void> => {
+  await update($, guardedRef, () => true)
+  $.ui.log(GUARD_NOTICE)
+  try {
+    await $.store.set(GUARD_SEEN_KEY, true)
+  } catch (err) {
+    logFailure($, 'guard flag', err)
+  }
+}
+
 export const register: Register = (on, options) => {
   cfg = readConfig(options)
 
@@ -851,6 +921,12 @@ export const register: Register = (on, options) => {
       projectMemo = undefined
       activeServer = undefined
       await update($, promptDigestRef, () => false)
+      // A guard seen on this machine before holds this session too, so its first prompt carries the digest.
+      try {
+        await guardOn($)
+      } catch (err) {
+        logFailure($, 'guard flag', err)
+      }
       try {
         await $.command.register({ name: 'lr-import', description: "Send Claude Code's memory files to lumberroom's proposal queue", argumentHint: '[all | plan | confirm <n|folder|all> [namespace] | skip <n>]' })
         await $.command.register({ name: 'lr-setup', description: "Allow the plugin's own lumberroom calls, then load the digest", argumentHint: '[show]' })
@@ -887,6 +963,7 @@ export const register: Register = (on, options) => {
   on('prompt.compose', async ($, e, next) => {
     const res = await next(e)
     try {
+      if (!(await read($, composedRef))) await composedOnce($)
       if (res.sections.some((s) => s.id === SECTION_ID)) return res
       // With no server, a cached digest still fills the section.
       if (serverAbsent && (await read($, digestRef)) === null) return res
@@ -905,26 +982,37 @@ export const register: Register = (on, options) => {
   // next() sits outside the try block: a failure beneath the plugin must not run the chain twice.
   on('prompt.submit', async ($, e, next) => {
     let block = ''
+    let digest = ''
     try {
       const kind = e.origin?.kind
+      const viaContext = await usesContextDigest($, e.text, kind)
+      if (viaContext) await noteContextShrink($)
+      // The context copy goes out once, so it waits for the queried digest rather than miss it.
+      const blocks = REFINE_BLOCKS_TURN || (viaContext && !(await read($, contextDigestRef)).shown)
       const query = await claimPromptQuery($, e.text, kind)
       // With no digest held yet, ensureDigest sends the query on its own call, so a late server
       // costs one call. With one held, the refetch runs on a timer unless REFINE_BLOCKS_TURN is set.
       const held = query !== undefined && (await read($, digestRef)) !== null
       const refine = (): Promise<void> =>
         query === undefined ? Promise.resolve() : refineDigest($, query).catch((err: unknown) => logFailure($, 'digest refetch', err))
-      if (held && !REFINE_BLOCKS_TURN) $.clock.after(0, () => void refine())
-      const [recalled] = await Promise.all([recallBlock($, e.text, kind, held ? undefined : query), held && REFINE_BLOCKS_TURN ? refine() : undefined])
+      if (held && !blocks) $.clock.after(0, () => void refine())
+      const [recalled] = await Promise.all([recallBlock($, e.text, kind, held ? undefined : query), held && blocks ? refine() : undefined])
       block = recalled
       // The digest still missing means the query never reached a server; the next eligible prompt tries again.
       if (query !== undefined && !held && (await read($, digestRef)) === null) await update($, promptDigestRef, () => false)
+      if (viaContext) digest = await contextDigest($)
     } catch (err) {
       logFailure($, 'prompt.submit', err)
     }
     // Every prompt redraws the line, so a status cleared by a reload comes back on the next prompt.
-    await addCost($, (c) => (block === '' ? c : { ...c, blocks: c.blocks + estimateTokens(block) }))
-    if (block === '') return next(e)
-    return next({ ...e, context: [...(e.context ?? []), block] })
+    await addCost($, (c) => ({
+      ...c,
+      section: digest === '' ? c.section : estimateTokens(digest),
+      blocks: c.blocks + (block === '' ? 0 : estimateTokens(block)),
+    }))
+    const added = [digest, block].filter((t) => t !== '')
+    if (added.length === 0) return next(e)
+    return next({ ...e, context: [...(e.context ?? []), ...added] })
   })
 
   on('tool.call', async ($, e, next) => {
@@ -945,6 +1033,10 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const res = await next(e)
     try {
+      if (!(await guardOn($)) && guardHeld({ composed: await read($, composedRef), agentId: e.agentId, reason: e.reason })) await noteGuard($)
+      // A turn's tool rows can grow the conversation well past the prompt's count before a compaction
+      // cuts it, so the count is taken again here.
+      if (e.agentId === undefined && (await read($, guardedRef)) && !(await read($, composedRef))) await noteContextShrink($)
       if (cfg.extractor === 'turn' && !serverAbsent && e.agentId === undefined && e.reason === 'answer') {
         // A review interval of 0 turns the nudge off; the extractor then runs at the default cadence.
         const every = cfg.reviewInterval > 0 ? cfg.reviewInterval : DEFAULTS.reviewInterval
@@ -972,6 +1064,7 @@ export const register: Register = (on, options) => {
       await resetDedup($)
       try {
         await update($, promptDigestRef, () => false)
+        await update($, contextDigestRef, () => ({ shown: false, messages: 0 }))
       } catch (err) {
         logFailure($, 'digest query reset', err)
       }

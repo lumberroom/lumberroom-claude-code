@@ -74,6 +74,12 @@ declare module 'claude-code' {
       cost: LumberroomCost
       /** True once this conversation's first eligible prompt went to context_bootstrap as its query. */
       promptDigest: boolean
+      /** True once the plugin's prompt.compose hook ran this session; the guard holds it otherwise. */
+      composed: boolean
+      /** True while the digest goes out as prompt.submit context because the guard holds prompt.compose. */
+      guarded: boolean
+      /** The fallback digest: whether this conversation holds it, and the message count the last prompt saw. */
+      contextDigest: { shown: boolean; messages: number }
     }
   }
 }

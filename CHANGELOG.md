@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- A fallback for Claude Code's built-in guard, `sec-default@builtin`, which skips a user-tier plugin's `prompt.compose`, `prompt.section` and `session.compact` hooks on machines with managed settings or a Team or Enterprise login. When a turn ends and `prompt.compose` never ran, the plugin logs one line, stores a flag in its plugin storage, and attaches the digest and the write rule to a prompt as context once a conversation, again after `/clear` or a compaction. The flag carries over to later sessions on the machine, so their first prompt gets the copy, and the plugin clears it as soon as `prompt.compose` runs. On the first eligible prompt the copy waits for the digest fetched with that prompt as `query`. The built-in memory section and the extraction at compaction stay off under the guard. The README section "Organization-managed Claude Code" covers the admin route that runs every hook. After `/clear`, which starts the conversation with fresh `$.state` and no `session.start`, the plugin reads the stored flag again on the next prompt.
+
 ## [0.6.0] - 2026-10-21
 
 ### Added
