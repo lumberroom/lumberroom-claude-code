@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- In a cloud session on claude.ai/code, the plugin found no server. The bundled server waited for an OAuth sign-in that a fresh container never has. The claude.ai Lumberroom connector was connected but ran as `Lumberroom`, which Claude Code did not pair with the bundled server. The plugin tried only `plugin:lumberroom-memory:lumberroom` and `lumberroom`, so the session got the write rule with no digest, and after three prompts a toast said no server was connected. The plugin now also tries `claude.ai Lumberroom` (CLI and desktop) and `Lumberroom` (cloud) after the bundled names, and recall, writes and the token count go to the connector that answered.
+
+### Changed
+
+- The digest names the server that answered, its tool prefix (`mcp__Lumberroom__*` under the cloud connector) and the ToolSearch query that loads deferred tools. When a connector answers while `$.mcp.connect` says the bundled server needs sign-in, the digest says the bundled server's "needs authentication" entry is harmless, so the agent does not report lumberroom as broken.
+- The no-server toast lists every name the plugin tried. When the bundled server waits for sign-in, it says so and points at `/mcp` or the claude.ai connector. It still fires on the third prompt that finds no server.
+- README: a section on cloud sessions. A plugin cannot hide its own bundled server at runtime, so the section tells cloud users to disable `plugin:lumberroom-memory:lumberroom` in `/mcp`.
+
 ## [0.7.0] - 2026-10-24
 
 ### Added

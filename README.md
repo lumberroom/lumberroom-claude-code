@@ -202,6 +202,30 @@ it, Claude Code keeps one copy and hides the others. The plugin asks which copy 
 to it. Remove a registered one (`claude mcp remove lumberroom`) to run on the
 bundled server alone.
 
+Claude Code does not always pair a claude.ai connector with the bundled server, so the plugin also
+tries the connector by name: `claude.ai Lumberroom` in the CLI and the desktop app, `Lumberroom` in
+a cloud session. The digest names whichever server answered and its tool prefix, for example
+`mcp__Lumberroom__memory_search`, and says the tools may need a ToolSearch load first, since
+Claude Code often defers a connector's tools. A connector under any other name is not found; rename
+it to `Lumberroom` on claude.ai.
+
+### Claude Code on the web (cloud sessions)
+
+A cloud session on claude.ai/code starts in a fresh container with no OAuth token for the bundled
+server, and the agent cannot sign in there. Connect the Lumberroom connector on claude.ai instead.
+The session gets it as `Lumberroom`, and the plugin reads and writes through it.
+
+The bundled server still appears in `/mcp` and in the session's MCP status as needing
+authentication, as `plugin:lumberroom-memory:lumberroom`, or as `lumberroom` when the repository's
+own `.mcp.json` registers the same URL. While the connector answers, that entry is harmless. The
+plugin raises no toast for it and writes only a debug-log line. The digest tells the agent that the entry is
+harmless and that memory works. The toast that points at `/mcp` fires only when no server answers
+at all.
+
+A plugin cannot hide or turn off its own bundled server while it runs. The plugin API offers
+`$.mcp.connect` and `$.mcp.call`, and neither can remove a server from the list. To clear the
+entry, disable `plugin:lumberroom-memory:lumberroom` in `/mcp`.
+
 The manifest is `.claude-plugin/marketplace.json` (marketplace `lumberroom`, plugin
 `lumberroom-memory`, source `./`). `npm run validate` checks it and `plugin.json`.
 

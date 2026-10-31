@@ -79,6 +79,8 @@ function world(on: On, answer: Answer = engine, fs: Files = {}) {
     http: (() => ({ status: 200, text: '{}' })) as (url: string) => { status: number; text: string },
     /** What $.mcp.connect answers for the bundled key: a server name, or undefined for not connected. */
     connectAs: 'plugin:lumberroom-memory:lumberroom' as string | undefined,
+    /** What $.mcp.connect says when connectAs is undefined. */
+    connectRefusal: { reason: 'not-found', message: 'not connected' } as { reason: string; message: string },
     /** What $.settings.read answers, merged. */
     settings: {} as Record<string, unknown>,
     /** Files the plugin wrote, by path. */
@@ -153,7 +155,7 @@ function world(on: On, answer: Answer = engine, fs: Files = {}) {
   })
   on('mcp.connect', () =>
     w.connectAs === undefined
-      ? { value: { isConnected: false as const, reason: 'not-found' as never, message: 'not connected' } }
+      ? { value: { isConnected: false as const, reason: w.connectRefusal.reason as never, message: w.connectRefusal.message } }
       : { value: { isConnected: true as const, server: w.connectAs } },
   )
   on('mcp.call', async (_$, e) => {
@@ -230,7 +232,8 @@ const NOT_CONNECTED_MSG =
 const notConnected: Answer = () => {
   throw new Error(NOT_CONNECTED_MSG)
 }
-const NO_SERVER_TOAST = 'lumberroom-memory: no "plugin:lumberroom-memory:lumberroom" or "lumberroom" MCP server with memory tools is connected. Check /mcp.'
+const NO_SERVER_TOAST =
+  'lumberroom-memory: no lumberroom MCP server with memory tools is connected (tried "plugin:lumberroom-memory:lumberroom", "lumberroom", "claude.ai Lumberroom", "Lumberroom"). Check /mcp.'
 
 type OriginKind = 'composer' | 'task-notification' | 'peer'
 const send = ($: Engine, text: string, kind: OriginKind = 'composer') => $.prompt.submit({ text, wait: false, origin: { kind } })
@@ -444,8 +447,8 @@ describe('recall', () => {
     expect(w.toasts).toEqual([NO_SERVER_TOAST])
 
     const atStop = w.calls.length
-    // Each prompt tries both candidates.
-    expect(atStop).toBe(atStart + 6)
+    // Each prompt tries all four candidates.
+    expect(atStop).toBe(atStart + 12)
     await send($, 'fourth question')
     await send($, 'fifth question')
     expect(w.calls.length).toBe(atStop)
@@ -740,12 +743,12 @@ describe('bootstrap', () => {
 
     expect(atStart).toBeGreaterThan(2)
     // 5000 ms of waiting in 500 ms steps, eleven attempts at most: the loop cannot run on past the
-    // budget. Two candidates per attempt.
-    expect(atStart).toBeLessThanOrEqual(22)
+    // budget. Four candidates per attempt.
+    expect(atStart).toBeLessThanOrEqual(44)
     expect(w.toasts).toEqual([])
 
     await send($, 'where is the config?')
-    expect(w.calls.length).toBe(atStart + 2)
+    expect(w.calls.length).toBe(atStart + 4)
     expect(w.calls.every((c) => c.tool === 'context_bootstrap')).toBe(true)
     expect(w.toasts).toEqual([])
   })
@@ -1123,6 +1126,95 @@ describe('server choice', () => {
     expect((w.submitted[0]?.context ?? [])[0]).toMatch('Build with pnpm')
   })
 
+})
+
+describe('a claude.ai connector beside the bundled server', () => {
+  const NEEDS_AUTH = { reason: 'auth', message: 'The MCP server "plugin:lumberroom-memory:lumberroom" needs you to sign in; run /mcp to authenticate.' }
+  /** Claude Code's real wording in a cloud session: no list of the servers that do have tools. */
+  const absent = (tool: string, server?: string) => {
+    throw new Error(`lumberroom-memory: $.mcp.call: no connected MCP tool "${tool}" on a server named "${server}"`)
+  }
+  /** Only the connector, under `name`, answers; the bundled server waits for sign-in. */
+  const onlyConnector =
+    (name: string): Answer =>
+    (tool, args, server) =>
+      server === name ? engine(tool, args) : absent(tool, server)
+  const section = async ($: Engine) => (await $.prompt.compose(COMPOSE)).sections.find((s) => s.id === SECTION_ID)?.text ?? ''
+  const surfaced = (w: { logs: string[] }) => w.logs.filter((l) => !l.startsWith('lumberroom: ') || /failed/.test(l))
+
+  test('cloud: the connector answers, the unauthenticated bundled server costs no warning, and the digest names the connector', { options: { recall: true } }, async ($, on) => {
+    const w = world(on, onlyConnector('Lumberroom'))
+    w.connectAs = undefined
+    w.connectRefusal = NEEDS_AUTH
+    await $.session.start(START)
+
+    const text = await section($)
+    expect(text).toMatch('prefers pnpm')
+    expect(text).toMatch('`mcp__Lumberroom__memory_search`')
+    expect(text).toMatch('`mcp__Lumberroom__memory_write`')
+    expect(text).toMatch('ToolSearch')
+    expect(text).toMatch('select:mcp__Lumberroom__memory_search,mcp__Lumberroom__memory_write,mcp__Lumberroom__registry_get')
+    expect(text).toMatch('`plugin:lumberroom-memory:lumberroom` may be listed as needing authentication')
+    expect(text).toMatch('harmless')
+    expect(text.includes('mcp__plugin_lumberroom-memory_lumberroom__memory_search')).toBe(false)
+
+    for (const q of ['how do I build this project?', 'and how do I run the tests?', 'where does the config live?', 'which port is the api on?']) await send($, q)
+    expect(w.toasts).toEqual([])
+    expect(surfaced(w)).toEqual([])
+    // After the bootstrap found it, every call goes straight to the connector.
+    const after = w.calls.slice(w.calls.findIndex((c) => c.server === 'Lumberroom') + 1)
+    expect(after.every((c) => c.server === 'Lumberroom')).toBe(true)
+    expect(searches(w).length).toBe(4)
+    expect((w.submitted[0]?.context ?? [])[0]).toMatch('Build with pnpm')
+  })
+
+  test('desktop and CLI: a connector named "claude.ai Lumberroom" is found the same way', async ($, on) => {
+    const w = world(on, onlyConnector('claude.ai Lumberroom'))
+    w.connectAs = undefined
+    w.connectRefusal = NEEDS_AUTH
+    await $.session.start(START)
+    const text = await section($)
+    expect(text).toMatch('`mcp__claude_ai_Lumberroom__memory_search`')
+    expect(text).toMatch('harmless')
+  })
+
+  test("the model's own calls to the connector count toward the token line", async ($, on) => {
+    const w = world(on, onlyConnector('Lumberroom'))
+    w.connectAs = undefined
+    w.connectRefusal = NEEDS_AUTH
+    await $.session.start(START)
+    w.toolText = 'x'.repeat(400)
+    await $.tool.call({ tool: 'mcp__Lumberroom__memory_search', query: 'q' } as never)
+    expect(w.statuses.at(-1)).toMatch('tools 100 (1 call)')
+  })
+
+  test('the bundled server live: the digest names its own prefix and no sign-in note', { options: { recall: true } }, async ($, on) => {
+    const w = world(on)
+    await $.session.start(START)
+    const text = await section($)
+    expect(text).toMatch('prefers pnpm')
+    expect(text).toMatch('`mcp__plugin_lumberroom-memory_lumberroom__memory_search`')
+    expect(text.includes('needing authentication')).toBe(false)
+    for (const q of ['how do I build this project?', 'and how do I run the tests?', 'where does the config live?']) await send($, q)
+    expect(w.toasts).toEqual([])
+    expect(w.calls.every((c) => c.server === 'plugin:lumberroom-memory:lumberroom')).toBe(true)
+  })
+
+  test('neither live: no digest, and the third prompt still toasts, naming the sign-in', async ($, on) => {
+    const w = world(on, (tool, _args, server) => absent(tool, server))
+    w.connectAs = undefined
+    w.connectRefusal = NEEDS_AUTH
+    await startRetrying($, w, 20)
+    expect(await section($)).toBe('')
+    await send($, 'first question')
+    await send($, 'second question')
+    expect(w.toasts).toEqual([])
+    await send($, 'third question')
+    expect(w.toasts.length).toBe(1)
+    expect(w.toasts[0]).toMatch('no lumberroom MCP server with memory tools is connected')
+    expect(w.toasts[0]).toMatch('"Lumberroom"')
+    expect(w.toasts[0]).toMatch('"plugin:lumberroom-memory:lumberroom" needs sign-in')
+  })
 })
 
 describe('first-prompt digest', () => {
