@@ -218,14 +218,13 @@ The session gets it as `Lumberroom`, and the plugin reads and writes through it.
 The bundled server still appears in `/mcp` and in the session's MCP status as needing
 authentication, as `plugin:lumberroom-memory:lumberroom`, or as `lumberroom` when the repository's
 own `.mcp.json` registers the same URL. While the connector answers, that entry is harmless. The
-plugin raises no toast and logs nothing for it. The digest tells the agent that the entry is
+plugin raises no toast for it and writes only a debug-log line. The digest tells the agent that the entry is
 harmless and that memory works. The toast that points at `/mcp` fires only when no server answers
 at all.
 
 A plugin cannot hide or turn off its own bundled server while it runs. The plugin API offers
 `$.mcp.connect` and `$.mcp.call`, and neither can remove a server from the list. To clear the
-entry, disable `plugin:lumberroom-memory:lumberroom` in `/mcp`, or list it under
-`disabledMcpServers` in the settings your cloud environment uses.
+entry, disable `plugin:lumberroom-memory:lumberroom` in `/mcp`.
 
 The manifest is `.claude-plugin/marketplace.json` (marketplace `lumberroom`, plugin
 `lumberroom-memory`, source `./`). `npm run validate` checks it and `plugin.json`.
