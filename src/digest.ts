@@ -1,6 +1,9 @@
 // The system-prompt section: the write rule and the engine's digest, and the check that keeps the
 // CLAUDE.md block from doubling the rule (spec 5).
 
+import { isBundledName, toolPrefix } from './server'
+import type { BundledState } from './server'
+
 export const SECTION_ID = 'lumberroom-memory:memory'
 export const DIGEST_HEADING = '# Durable memory (lumberroom)'
 
@@ -29,6 +32,32 @@ runs long and that is bloat. Two facts from one exchange are two calls.
 Do not write transient chatter, file contents, secrets, or anything you would not want repeated
 back next month.`
 
+/** The tools the model calls itself; the section names them with the live server's prefix. */
+const MODEL_TOOLS = ['memory_search', 'memory_write', 'registry_get'] as const
+
+/**
+ * Which server answered and how its tools are spelled, so the model calls the live one. WRITE_RULE
+ * keeps the snippet's `lumberroom`, which is the wrong name under a connector. A claude.ai
+ * connector's tools are often deferred, so the note names the ToolSearch load. When the
+ * connector answered while the bundled server waits for sign-in, it says that entry is harmless:
+ * Claude Code lists it as needing authentication and the model would otherwise report lumberroom
+ * as broken. "" with no server.
+ */
+export function serverNote(server: string | null | undefined, bundled?: BundledState | null): string {
+  if (!server) return ''
+  const prefix = toolPrefix(server)
+  const tools = MODEL_TOOLS.map((t) => `\`${prefix}${t}\``).join(', ')
+  const lines = [
+    `In this session lumberroom answers on the MCP server \`${server}\`: call its tools as ${tools} (prefix \`${prefix}*\`). If they are not in your tool list yet, they are deferred: load them first with ToolSearch, query \`select:${MODEL_TOOLS.map((t) => prefix + t).join(',')}\`.`,
+  ]
+  if (bundled?.needsAuth === true && !isBundledName(server) && bundled.name !== server) {
+    lines.push(
+      `The MCP server \`${bundled.name}\` may be listed as needing authentication. That is the plugin's bundled copy of the same engine and is harmless while \`${server}\` answers: memory works, so do not tell the user lumberroom is broken or ask them to sign in.`,
+    )
+  }
+  return lines.join('\n')
+}
+
 /**
  * context_bootstrap's parsed data -> { text, memories }. `text` is data.text when a string, else
  * data itself when a string (an engine that answered markdown), else "". `memories` is
@@ -48,15 +77,20 @@ export function digestFrom(data: unknown): { text: string; memories: number | nu
 }
 
 /**
- * The section text: DIGEST_HEADING, the project line when `project`, WRITE_RULE when
- * `includeRule`, then the digest clipped so the whole section fits `maxChars`, cut at the last
- * whole line. "" when there is no digest and no rule.
+ * The section text: DIGEST_HEADING, the project line when `project`, the server note when
+ * `server`, WRITE_RULE when `includeRule`, then the digest clipped so the whole section fits
+ * `maxChars`, cut at the last whole line. "" when there is no digest and no rule.
  */
-export function buildSection(digest: string, opts: { includeRule: boolean; maxChars: number; project: string | null }): string {
+export function buildSection(
+  digest: string,
+  opts: { includeRule: boolean; maxChars: number; project: string | null; server?: string | null; bundled?: BundledState | null },
+): string {
   const body = digest.trim()
   if (body === '' && !opts.includeRule) return ''
   const parts = [DIGEST_HEADING]
   if (opts.project) parts.push(`Project: ${opts.project}`)
+  const note = serverNote(opts.server, opts.bundled)
+  if (note !== '') parts.push(note)
   if (opts.includeRule) parts.push(WRITE_RULE)
   const prefix = parts.join('\n\n')
   const room = opts.maxChars - prefix.length - 2

@@ -6,6 +6,7 @@ import {
   buildSection,
   digestFrom,
   hasDurableMemoryBlock,
+  serverNote,
 } from '../src/digest'
 
 describe('digestFrom', () => {
@@ -111,5 +112,41 @@ You have a shared memory service. Call \`memory_write\` after every decision.
 
   test('is false for the heading as a sub-heading', () => {
     expect(hasDurableMemoryBlock('## Durable memory\n\nmemory_write\n')).toBe(false)
+  })
+})
+
+describe('serverNote', () => {
+  const NEEDS_AUTH = { name: 'plugin:lumberroom-memory:lumberroom', needsAuth: true }
+
+  test('names the live server, its tool prefix and the ToolSearch load', () => {
+    const note = serverNote('Lumberroom', null)
+    expect(note).toMatch('MCP server `Lumberroom`')
+    expect(note).toMatch('`mcp__Lumberroom__memory_search`, `mcp__Lumberroom__memory_write`, `mcp__Lumberroom__registry_get`')
+    expect(note).toMatch('ToolSearch, query `select:mcp__Lumberroom__memory_search,mcp__Lumberroom__memory_write,mcp__Lumberroom__registry_get`')
+    expect(note.includes('authentication')).toBe(false)
+  })
+
+  test('says the unauthenticated bundled server is harmless while a connector answers', () => {
+    const note = serverNote('Lumberroom', NEEDS_AUTH)
+    expect(note).toMatch('`plugin:lumberroom-memory:lumberroom` may be listed as needing authentication')
+    expect(note).toMatch('harmless while `Lumberroom` answers')
+  })
+
+  test('has no sign-in line when the bundled server is the one answering', () => {
+    expect(serverNote('plugin:lumberroom-memory:lumberroom', NEEDS_AUTH).includes('authentication')).toBe(false)
+    expect(serverNote('lumberroom', { name: 'lumberroom', needsAuth: true }).includes('authentication')).toBe(false)
+  })
+
+  test('is empty with no server', () => {
+    expect(serverNote(null, NEEDS_AUTH)).toBe('')
+    expect(serverNote(undefined)).toBe('')
+  })
+
+  test('buildSection puts the note after the project line and before the rule', () => {
+    const out = buildSection('- a fact', { includeRule: true, maxChars: 8000, project: 'demo', server: 'Lumberroom', bundled: NEEDS_AUTH })
+    const project = out.indexOf('Project: demo')
+    const note = out.indexOf('MCP server `Lumberroom`')
+    const rule = out.indexOf(WRITE_RULE)
+    expect(project > 0 && note > project && rule > note).toBe(true)
   })
 })

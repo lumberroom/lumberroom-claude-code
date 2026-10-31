@@ -25,7 +25,8 @@ import { callTool, isOutage } from '../src/mcp'
 import { OWN_PLUGIN } from '../src/own'
 import { raceSleep } from '../src/race'
 import type { CallOutcome, McpDeps } from '../src/mcp'
-import { BUNDLED_KEY, SERVER_CANDIDATES } from '../src/server'
+import { BUNDLED_KEY, bundledStateFrom, notConnectedToast, SERVER_CANDIDATES } from '../src/server'
+import type { BundledState } from '../src/server'
 import { cliConfigPath, resolveIngest, type IngestCredential } from '../src/credential'
 import { findGitRoot, resolveProject, slugFromPath } from '../src/project'
 import type { Exists } from '../src/project'
@@ -101,11 +102,18 @@ const serverName = (): string => activeServer ?? SERVER_CANDIDATES[0]
 const knownServers = (): string[] => [...new Set([...SERVER_CANDIDATES, ...triedServers])]
 /** Names serversToTry returned, counted before the first call answers. */
 let triedServers: readonly string[] = []
+/**
+ * What the last $.mcp.connect said about a bundled server that is not connected; null when it
+ * connected or could not answer. A cloud session's fresh container leaves it waiting for sign-in
+ * while a claude.ai connector to the same engine answers.
+ */
+let bundledState: BundledState | null = null
 
 /**
  * The names to try, in order. In auto, $.mcp.connect on the bundled key answers with the name the
  * session runs the server under (the bundled one, a registered duplicate, or a claude.ai connector
- * with the same URL), and that name goes first.
+ * with the same URL), and that name goes first. A connector Claude Code did not pair with the
+ * bundled server is reached by its own names, the tail of SERVER_CANDIDATES.
  */
 const serversToTry = async ($: Dollar): Promise<readonly string[]> => {
   const base = SERVER_CANDIDATES
@@ -113,8 +121,13 @@ const serversToTry = async ($: Dollar): Promise<readonly string[]> => {
     const raced = await raceSleep($.mcp.connect(BUNDLED_KEY), (ms) => $.clock.sleep(ms), cfg.bootstrapTimeoutMs)
     const answer = raced.timedOut ? undefined : raced.value
     if (answer?.isConnected === true) {
+      bundledState = null
       const live = answer.server
       return [live, ...base.filter((n) => n !== live)]
+    }
+    if (answer !== undefined) {
+      bundledState = bundledStateFrom(answer as { reason?: unknown; message?: unknown })
+      debug($, `the bundled server is not connected${bundledState.needsAuth ? ` ("${bundledState.name}" needs sign-in)` : ''}; trying ${base.slice(1).join(', ')}`)
     }
   } catch (err) {
     debug($, `$.mcp.connect failed: ${messageOf(err)}`)
@@ -231,7 +244,9 @@ const addCost = async ($: Dollar, change: (c: Cost) => Cost): Promise<void> => {
 
 const sectionText = async ($: Dollar): Promise<string> => {
   const digest = await read($, digestRef)
-  return buildSection(digest?.text ?? '', { includeRule: !hasRule, maxChars: cfg.digestMaxChars, project: digest?.project ?? null })
+  // A server named only once one answered: a cached digest with no live server names none.
+  const server = serverAbsent ? null : (activeServer ?? null)
+  return buildSection(digest?.text ?? '', { includeRule: !hasRule, maxChars: cfg.digestMaxChars, project: digest?.project ?? null, server, bundled: bundledState })
 }
 
 /** Forgets which hits this conversation has seen, and restarts the nudge count. */
@@ -252,8 +267,7 @@ const noteNotConnectedPrompt = ($: Dollar): void => {
   if (notConnectedPrompts < 3 || toldNotConnected) return
   toldNotConnected = true
   recallStopped = true
-  const names = SERVER_CANDIDATES.map((n) => `"${n}"`).join(' or ')
-  $.ui.toast(`${PLUGIN}: no ${names} MCP server with memory tools is connected. Check /mcp.`)
+  $.ui.toast(notConnectedToast(knownServers(), bundledState))
 }
 
 /** One context_bootstrap through the breaker, with the person's request as `query` when given. Stores the digest on success. */
@@ -267,6 +281,7 @@ const bootstrap = async ($: Dollar, query?: string): Promise<'ok' | 'not_connect
   const candidates = await serversToTry($)
   triedServers = candidates
   let outcome: CallOutcome = { kind: 'not_connected', error: 'no server tried', ms: 0 }
+  const was = activeServer
   for (const candidate of candidates) {
     outcome = await callTool(mcpDeps($), candidate, 'context_bootstrap', args, cfg.bootstrapTimeoutMs)
     if (outcome.kind !== 'not_connected') {
@@ -274,6 +289,8 @@ const bootstrap = async ($: Dollar, query?: string): Promise<'ok' | 'not_connect
       break
     }
   }
+  // The section names the server that answered, so a new one needs a fresh render.
+  if (activeServer !== was) $.ui.invalidate('prompt.section')
   await record($, outcome)
   serverAbsent = outcome.kind === 'not_connected'
   if (outcome.kind !== 'ok') {
@@ -920,6 +937,7 @@ export const register: Register = (on, options) => {
       toldDenied = false
       projectMemo = undefined
       activeServer = undefined
+      bundledState = null
       await update($, promptDigestRef, () => false)
       // A guard seen on this machine before holds this session too, so its first prompt carries the digest.
       try {
